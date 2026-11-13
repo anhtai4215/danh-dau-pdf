@@ -289,3 +289,18 @@ svg{width:22px;height:22px;flex:none}
 .pg-label{min-width:44px}
 .bottombar{gap:4px}
 @media (max-width:370px){.fab span{display:none}.fab{padding:0 14px}}
+.rpt-list{display:grid;gap:8px}
+.rpt{display:flex;gap:10px;align-items:center;background:#fff;border-radius:14px;padding:10px 6px 10px 12px;box-shadow:0 1px 2px rgba(15,23,42,.06)}
+.rpt .info{flex:1;min-width:0}.rpt .name{font-weight:650;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rpt .meta{color:var(--muted);font-size:12px;margin-top:2px}
+.rpt-ic{width:30px;height:30px;color:#dc2626;flex:none}
+.deliver .dl-file{display:flex;gap:12px;align-items:center;background:#f1f5f9;border-radius:12px;padding:12px}
+.deliver .dl-file svg{width:34px;height:34px;color:#dc2626}
+.deliver .dl-file b{display:block;word-break:break-all;font-size:14px}.deliver .dl-file small{color:var(--muted)}
+.deliver .dl-tip{color:#475569;font-size:13.5px;margin:10px 0 0}
+.deliver .modal-actions .btn{flex:1}
+.rpt-list{grid-template-columns:minmax(0,1fr)}
+.rpt{min-width:0}
+.home-main{overflow-x:hidden}
+.proj-list{grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr))}
+.modal-box.deliver{animation:none}

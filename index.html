@@ -13,8 +13,6 @@
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <title>Đánh dấu PDF</title>
 <link rel="stylesheet" href="style.css">
-<script src="pdf-lib.min.js" defer></script>
-<script src="fontkit.umd.min.js" defer></script>
 <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -79,6 +77,8 @@
     <div class="sec-title">Bản vẽ <small id="pjDwgCount"></small></div>
     <div id="dwgList" class="proj-list"></div>
     <div id="emptyDwg" class="empty" hidden><p>Chưa có bản vẽ. Bấm <b>“Thêm bản vẽ PDF”</b>.</p></div>
+    <div class="sec-title" id="rptTitle" hidden>Báo cáo đã xuất</div>
+    <div id="rptList" class="rpt-list"></div>
   </main>
   <div class="home-actions row2">
     <button class="btn big2" id="pjReport"><svg><use href="#i-export"/></svg> Lập báo cáo</button>

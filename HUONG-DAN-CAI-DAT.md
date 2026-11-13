@@ -63,6 +63,16 @@ Trang dự án → **Lập báo cáo** (hoặc từ menu bản vẽ / Danh sách
   **Phụ lục 1** bản vẽ gốc có ký hiệu vector và chú giải, **Phụ lục 2** chi tiết từng điểm kèm ảnh trích vị trí và ảnh hiện trường.
 - Chữ tiếng Việt thật (tìm kiếm, copy được), đánh số trang, chia sẻ thẳng qua Zalo / Email.
 
+## Chia sẻ / lưu báo cáo
+
+- Tạo xong báo cáo, bấm **Chia sẻ…** để gửi thẳng sang Zalo, Email, Messenger, Google Drive, OneDrive…
+  - **iPhone**: trong bảng chia sẻ chọn **“Lưu vào Tệp”** để lưu file trên máy.
+  - **Android**: bấm **Lưu về máy** → file nằm trong thư mục **Tải xuống (Download)**.
+  - **Máy tính**: **Lưu về máy** mở hộp thoại chọn thư mục lưu.
+- Mọi báo cáo đã tạo được giữ trong mục **Báo cáo đã xuất** ở trang dự án: bấm **Chia sẻ** để gửi lại bất cứ lúc nào,
+  không cần tạo lại. Bấm ⋮ để lưu về máy hoặc xóa.
+- Tên file không dấu (VD `BaoCao_VG_BC-01_VG-01_13-11-2026.pdf`) để mọi ứng dụng nhận đúng.
+
 ## Sao lưu
 
 Menu dự án → **Sao lưu dự án (.pmk)**: gồm toàn bộ bản vẽ, điểm và ảnh. Mở app trên máy khác → **Khôi phục**.

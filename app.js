@@ -3,7 +3,7 @@
 import * as pdfjsLib from './pdf.min.js';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.js', import.meta.url).href;
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 const $ = (s, r = document) => r.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -111,7 +111,7 @@ const rectPoly = (a, b) => { const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0]
 let _db;
 function idb() {
   if (!_db) _db = new Promise((res, rej) => {
-    const r = indexedDB.open('pdfmark', 2);
+    const r = indexedDB.open('pdfmark', 3);
     r.onupgradeneeded = e => {
       const d = r.result, tx = r.transaction, old = e.oldVersion;
       if (old < 1) {
@@ -126,6 +126,7 @@ function idb() {
         tx.objectStore('markers').createIndex('drawingId', 'drawingId');
         if (old >= 1) migrateV1(tx);
       }
+      if (old < 3) d.createObjectStore('reports', { keyPath: 'id' }).createIndex('projectId', 'projectId');
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -184,7 +185,18 @@ async function deleteDrawingData(did) {
 async function deleteProjectData(pid) {
   for (const d of await DB.byIdx('drawings', 'projectId', pid)) await DB.del('pdfs', d.id);
   await DB.delByIdx('drawings', 'projectId', pid); await DB.delByIdx('markers', 'projectId', pid);
-  await DB.delByIdx('photos', 'projectId', pid); await DB.del('projects', pid);
+  await DB.delByIdx('photos', 'projectId', pid); await DB.delByIdx('reports', 'projectId', pid); await DB.del('projects', pid);
+}
+let pdfLibP = null;
+/** pdf-lib + fontkit are only needed for exports: load them on demand (cached offline by the service worker). */
+function loadPdfLib() {
+  if (window.PDFLib && window.fontkit) return Promise.resolve();
+  if (!pdfLibP) pdfLibP = Promise.all(['pdf-lib.min.js', 'fontkit.umd.min.js'].map(src => new Promise((res, rej) => {
+    const sc = document.createElement('script'); sc.src = src; sc.async = true;
+    sc.onload = res; sc.onerror = () => { pdfLibP = null; rej(new Error('Không tải được thư viện ' + src + ' – hãy mở app khi có mạng một lần.')); };
+    document.head.appendChild(sc);
+  })));
+  return pdfLibP;
 }
 function requestPersist() { try { navigator.storage?.persist?.(); } catch {} }
 
@@ -253,25 +265,51 @@ window.addEventListener('popstate', e => {
   const depth = e.state?.n || 0;
   while (layers.length > depth) layers.pop().close();
 });
-async function deliverFile(blob, filename, title = 'File đã sẵn sàng') {
-  const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
-  const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
-  const btns = [{ label: 'Đóng', value: 'close' }, { label: 'Lưu về máy', value: 'save', cls: canShare ? '' : 'primary' }];
-  if (canShare) btns.push({ label: 'Chia sẻ…', value: 'share', cls: 'primary' });
+const asciiName = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D')
+  .replace(/[^\w.\-]+/g, '_').replace(/_+/g, '_').replace(/^_|_(?=\.)/g, '');
+const canShareFile = file => { try { return !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch { return false; } };
+async function shareFile(file) {
+  try { await navigator.share({ files: [file] }); return true; }
+  catch (e) {
+    if (e.name === 'AbortError') return false;
+    try { await navigator.share({ files: [file], title: file.name }); return true; } catch (e2) { if (e2.name === 'AbortError') return false; }
+    toast('Không mở được bảng chia sẻ – chuyển sang lưu file'); await saveFile(file); return false;
+  }
+}
+async function saveFile(file) {
+  if (window.showSaveFilePicker && !/Android|iPhone|iPad/i.test(navigator.userAgent)) {
+    try {
+      const h = await window.showSaveFilePicker({ suggestedName: file.name, types: [{ description: 'File', accept: { [file.type || 'application/octet-stream']: ['.' + file.name.split('.').pop()] } }] });
+      const w = await h.createWritable(); await w.write(file); await w.close(); toast('Đã lưu file'); return;
+    } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  downloadBlob(file, file.name);
+  toast('Đã tải về – xem trong thư mục Tải xuống (Downloads)', 4000);
+}
+/** Show a dialog so share/save happens inside a real tap (required by iOS / Android). */
+async function deliverFile(blob, filename, title = 'File đã sẵn sàng', note = '') {
+  const file = new File([blob], asciiName(filename), { type: blob.type || 'application/octet-stream' });
+  const share = canShareFile(file), ios = isIOS(), iosApp = ios && isStandalone();
+  const btns = [{ label: 'Đóng', value: 'close' }];
+  if (!iosApp) btns.push({ label: 'Lưu về máy', value: 'save', cls: share ? '' : 'primary' });
+  if (share) btns.push({ label: 'Chia sẻ…', value: 'share', cls: 'primary' });
   await modal({
-    title, html: `<p><b>${esc(filename)}</b><br><span style="color:#64748b">${fmtSize(blob.size)}</span></p>
-      <p style="color:#64748b;font-size:13.5px">${canShare ? '“Chia sẻ” để gửi qua Zalo, Email, Drive… hoặc lưu vào Tệp.' : ''}</p>`,
+    title, cls: 'deliver',
+    html: `<div class="dl-file"><svg><use href="#i-doc"/></svg><div><b>${esc(file.name)}</b><small>${fmtSize(blob.size)}</small></div></div>
+      ${share ? `<p class="dl-tip"><b>Chia sẻ</b> để gửi thẳng sang Zalo, Email, Messenger, Google Drive, OneDrive…${ios ? ' hoặc chọn <b>“Lưu vào Tệp”</b> để lưu trên iPhone.' : ''}</p>` :
+        `<p class="dl-tip">Thiết bị này không hỗ trợ chia sẻ trực tiếp – bấm <b>Lưu về máy</b> rồi gửi file từ thư mục Tải xuống.</p>`}
+      ${note ? `<p class="dl-tip">${note}</p>` : ''}`,
     buttons: btns.map(b => ({ ...b, value: () => {
-      if (b.value === 'share') navigator.share({ files: [file], title: filename }).catch(e => { if (e.name !== 'AbortError') downloadBlob(blob, filename); });
-      if (b.value === 'save') downloadBlob(blob, filename);
+      if (b.value === 'share') shareFile(file);
+      if (b.value === 'save') saveFile(file);
       return b.value; } })),
   });
 }
 function downloadBlob(blob, filename) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = filename;
+  a.href = URL.createObjectURL(blob); a.download = filename; a.rel = 'noopener';
   document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 10000);
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 60000);
 }
 function loadImage(src) {
   return new Promise((res, rej) => {
@@ -416,7 +454,7 @@ async function openProject(pid) {
     S.filter = { cats: [], st: 'all', owner: '', over: false };
     showScreen('project');
     if (!hasLayer('project')) pushLayer('project', closeProject);
-    renderProject();
+    renderProject(); renderReports();
   } catch (e) { console.error(e); modal({ title: 'Lỗi', html: esc(e.message || e) }); }
   finally { unbusy(); }
 }
@@ -446,6 +484,29 @@ function renderProject() {
       <button class="icon-btn dark more" aria-label="Tùy chọn"><svg><use href="#i-more"/></svg></button>`;
     el.onclick = e => { if (e.target.closest('.more')) drawingMenu(d); else openDrawing(d.id); };
     list.appendChild(el);
+  });
+}
+async function renderReports() {
+  const box = $('#rptList'); if (!box || !S.project) return;
+  const rs = (await DB.byIdx('reports', 'projectId', S.project.id)).sort((a, b) => b.created - a.created);
+  $('#rptTitle').hidden = !rs.length; box.innerHTML = '';
+  rs.forEach(r => {
+    const el = document.createElement('div'); el.className = 'rpt'; el.setAttribute('role', 'button');
+    el.innerHTML = `<svg class="rpt-ic"><use href="#i-doc"/></svg><div class="info"><div class="name">${esc(r.title || r.name)}</div>
+      <div class="meta">${r.no ? 'Số ' + esc(r.no) + ' · ' : ''}${r.count || 0} điểm · ${fmtSize(r.size)} · ${fmtDate(r.created)}</div></div>
+      <button class="btn primary sm-btn share">Chia sẻ</button><button class="icon-btn dark more" aria-label="Tùy chọn"><svg><use href="#i-more"/></svg></button>`;
+    const file = () => new File([r.blob], r.name, { type: 'application/pdf' });
+    el.querySelector('.share').onclick = e => { e.stopPropagation(); const f = file(); if (canShareFile(f)) shareFile(f); else saveFile(f); };
+    el.onclick = e => {
+      if (e.target.closest('.share')) return;
+      menu([
+        { label: 'Chia sẻ sang ứng dụng khác', icon: 'i-export', action: () => { const f = file(); if (canShareFile(f)) shareFile(f); else saveFile(f); } },
+        ...(isIOS() && isStandalone() ? [] : [{ label: 'Lưu về máy', icon: 'i-doc', action: () => saveFile(file()) }]),
+        '-',
+        { label: 'Xóa báo cáo này', icon: 'i-trash', danger: true, action: async () => { if (await confirmBox('Xóa báo cáo?', esc(r.name), 'Xóa', true)) { await DB.del('reports', r.id); renderReports(); } } },
+      ]);
+    };
+    box.appendChild(el);
   });
 }
 function drawingMenu(d) {
@@ -521,7 +582,7 @@ function touchProject() {
 
 /* ======================= VIEWER ======================= */
 const stage = $('#stage'), content = $('#content'), cvBase = $('#cvBase'), cvDetail = $('#cvDetail'), mkLayer = $('#mkLayer'), geo = $('#geoLayer');
-const DPR = () => Math.min(window.devicePixelRatio || 1, 3);
+const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
 const dwgMarkers = () => S.markers.filter(m => m.drawingId === S.drawing?.id);
 
 async function openDrawing(did, page) {
@@ -563,13 +624,22 @@ async function gotoPage(n, opts = {}) {
   S.pageNum = n; $('#pageLoading').hidden = false;
   const page = await S.doc.getPage(n);
   if (gen !== renderGen) return;
-  S.page = page; layoutBase();
+  S.page = page; S.baseRes = 0; layoutBase();
   if (!opts.keepView) fitView();
   cvDetail.style.display = 'none';
+  if (n === 1 && S.drawing.thumb) paintThumbPlaceholder(gen);
+  else { const ctx = cvBase.getContext('2d'); cvBase.width = 8; cvBase.height = 8; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 8, 8); }
   renderMarks(); updatePager();
   if (S.drawing.lastPage !== n) { S.drawing.lastPage = n; DB.put('drawings', S.drawing); }
   await renderBase(gen);
-  scheduleDetail(0);
+  scheduleDetail(250);
+}
+async function paintThumbPlaceholder(gen) {
+  try {
+    const img = await loadImage(S.drawing.thumb);
+    if (gen !== renderGen || S.baseRes > 0.01) return;
+    cvBase.width = img.naturalWidth; cvBase.height = img.naturalHeight; cvBase.getContext('2d').drawImage(img, 0, 0);
+  } catch {}
 }
 function layoutBase() {
   const W = stage.clientWidth, H = stage.clientHeight;
@@ -582,30 +652,35 @@ function layoutBase() {
   geo.style.width = S.base.w + 'px'; geo.style.height = S.base.h + 'px';
   geo.setAttribute('viewBox', `0 0 ${S.base.w} ${S.base.h}`);
 }
+/** Two passes: a quick low-res draw so the drawing appears at once, then a sharper one. */
 async function renderBase(gen) {
-  const page = S.page, b = S.base, dpr = DPR();
-  let k = Math.min(2 * dpr, 4096 / Math.max(b.w, b.h));
-  if (b.w * b.h * k * k > 5e6) k = Math.sqrt(5e6 / (b.w * b.h));
-  const vp = page.getViewport({ scale: b.fit * k });
-  const off = document.createElement('canvas'); off.width = Math.floor(vp.width); off.height = Math.floor(vp.height);
-  const ctx = off.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, off.width, off.height);
-  try { baseTask = page.render({ canvasContext: ctx, viewport: vp }); await baseTask.promise; }
-  catch (e) { if (e?.name !== 'RenderingCancelledException') console.warn(e); return; }
-  finally { baseTask = null; }
-  if (gen !== renderGen) return;
-  cvBase.width = off.width; cvBase.height = off.height; cvBase.getContext('2d').drawImage(off, 0, 0);
-  S.baseRes = k; $('#pageLoading').hidden = true;
+  const page = S.page, b = S.base, area = b.w * b.h;
+  const passes = [Math.min(1, Math.sqrt(1.2e6 / area)), Math.min(DPR() * 1.25, 4096 / Math.max(b.w, b.h), Math.sqrt(4e6 / area))];
+  for (const [i, k] of passes.entries()) {
+    if (i === 1 && k <= passes[0] * 1.05) break;
+    const vp = page.getViewport({ scale: b.fit * k });
+    const off = document.createElement('canvas'); off.width = Math.floor(vp.width); off.height = Math.floor(vp.height);
+    const ctx = off.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, off.width, off.height);
+    try { baseTask = page.render({ canvasContext: ctx, viewport: vp }); await baseTask.promise; }
+    catch (e) { if (e?.name !== 'RenderingCancelledException') console.warn(e); return; }
+    finally { baseTask = null; }
+    if (gen !== renderGen) return;
+    cvBase.width = off.width; cvBase.height = off.height; cvBase.getContext('2d').drawImage(off, 0, 0);
+    S.baseRes = k;
+    if (i === 0) { $('#pageLoading').hidden = false; }
+  }
+  $('#pageLoading').hidden = true;
 }
-function scheduleDetail(ms = 180) { clearTimeout(detailTimer); detailTimer = setTimeout(renderDetail, ms); }
+function scheduleDetail(ms = 260) { clearTimeout(detailTimer); detailTimer = setTimeout(renderDetail, ms); }
 async function renderDetail() {
   if (!S.page || !S.base) return;
   const { s, tx, ty } = S.view, b = S.base, eff = s * DPR();
-  if (eff <= S.baseRes * 1.1) { cvDetail.style.display = 'none'; return; }
+  if (eff <= S.baseRes * 1.15) { cvDetail.style.display = 'none'; return; }
   const W = stage.clientWidth, H = stage.clientHeight;
   const x0 = clamp(-tx / s, 0, b.w), y0 = clamp(-ty / s, 0, b.h), x1 = clamp((W - tx) / s, 0, b.w), y1 = clamp((H - ty) / s, 0, b.h);
   if (x1 - x0 < 1 || y1 - y0 < 1) return;
   let k = eff;
-  if ((x1 - x0) * (y1 - y0) * k * k > 9e6) k = Math.sqrt(9e6 / ((x1 - x0) * (y1 - y0)));
+  if ((x1 - x0) * (y1 - y0) * k * k > 4.5e6) k = Math.sqrt(4.5e6 / ((x1 - x0) * (y1 - y0)));
   try { detailTask?.cancel(); } catch {}
   const gen = renderGen, page = S.page, vp = page.getViewport({ scale: b.fit * k });
   const off = document.createElement('canvas'); off.width = Math.ceil((x1 - x0) * k); off.height = Math.ceil((y1 - y0) * k);
@@ -1257,6 +1332,7 @@ async function exportDrawingDialog() {
   const ms = useFilter ? ms0.filter(passFilter) : ms0;
   busy('Đang tạo PDF…');
   try {
+    await loadPdfLib();
     const doc = await window.PDFLib.PDFDocument.load(await S.pdfBlob.arrayBuffer(), { ignoreEncryption: true, updateMetadata: false });
     const { B } = await embedFonts(doc);
     annotateDoc(doc, ms, B);
@@ -1265,21 +1341,31 @@ async function exportDrawingDialog() {
   } catch (e) { unbusy(); console.error(e); modal({ title: 'Xuất PDF lỗi', html: esc(e.message || e) }); }
 }
 
-/** Canvas snippet around a mark, with the mark drawn on it. */
-async function renderSnippet(doc, m, w, h) {
-  const page = await doc.getPage(m.page);
-  const vp1 = page.getViewport({ scale: 1 });
+/** Render a whole page once (capped size); snippets are cropped from it – much faster than one render per mark. */
+async function renderPageImage(doc, pn) {
+  const page = await doc.getPage(pn), vp1 = page.getViewport({ scale: 1 });
+  const sc = Math.min(4, 4096 / Math.max(vp1.width, vp1.height), Math.sqrt(11e6 / (vp1.width * vp1.height)));
+  const vp = page.getViewport({ scale: sc });
+  const c = document.createElement('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  return { c, sc, vp1 };
+}
+/** Snippet (w×h canvas) around a mark cropped from a page image, with the mark drawn on it. */
+function snippetFromPage(pi, m, w, h) {
+  const { c: src, sc, vp1 } = pi;
   const g1 = markGeom(m, (x, y) => vp1.convertToViewportPoint(x, y));
   const pts = g1.poly || (g1.tip ? [g1.tip, g1.tail] : [g1.point]);
   const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
   const bx0 = Math.min(...xs), bx1 = Math.max(...xs), by0 = Math.min(...ys), by1 = Math.max(...ys);
   const span = Math.max(Math.max(vp1.width, vp1.height) * 0.14, (bx1 - bx0) * 1.5, (by1 - by0) * 1.5 * w / h);
-  const sc = w / span, vp = page.getViewport({ scale: sc });
-  const cx = (bx0 + bx1) / 2 * sc, cy = (by0 + by1) / 2 * sc;
+  const k = w / span, cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2;
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
-  await page.render({ canvasContext: ctx, viewport: vp, transform: [1, 0, 0, 1, w / 2 - cx, h / 2 - cy] }).promise;
-  const T = p => [p[0] * sc - cx + w / 2, p[1] * sc - cy + h / 2];
+  ctx.imageSmoothingQuality = 'high';
+  const sx = (cx - w / 2 / k) * sc, sy = (cy - h / 2 / k) * sc;
+  ctx.drawImage(src, sx, sy, (w / k) * sc, (h / k) * sc, 0, 0, w, h);
+  const T = p => [(p[0] - cx) * k + w / 2, (p[1] - cy) * k + h / 2];
   const g = { poly: g1.poly?.map(T), tip: g1.tip && T(g1.tip), tail: g1.tail && T(g1.tail), point: g1.point && T(g1.point), anchor: T(g1.anchor) };
   const col = stOf(m).color, r = Math.min(w, h) * 0.05, lw = Math.max(3, w * 0.007);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -1290,12 +1376,13 @@ async function renderSnippet(doc, m, w, h) {
     const p = new Path2D(m.kind === 'cloud' ? segsToD(cloudSegs(g.poly, clamp(Math.min(pw, ph) / 3.5, 6, 40))) : `M ${g.poly.map(q => q.join(' ')).join(' L ')} Z`);
     ctx.fillStyle = col + '14'; ctx.fill(p); stroke(p, lw);
   } else if (g.tip) {
-    const p = new Path2D(`M ${g.tail.join(' ')} L ${g.tip.join(' ')}`); stroke(p, lw);
+    stroke(new Path2D(`M ${g.tail.join(' ')} L ${g.tip.join(' ')}`), lw);
     const a = Math.atan2(g.tip[1] - g.tail[1], g.tip[0] - g.tail[0]);
     ctx.save(); ctx.translate(g.tip[0], g.tip[1]); ctx.rotate(a); ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(-r * 1.6, -r * 0.8); ctx.lineTo(-r * 1.15, 0); ctx.lineTo(-r * 1.6, r * 0.8); ctx.closePath();
     ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
   } else {
-    const rr = Math.min(w, h) * 0.13; stroke(new Path2D(`M ${g.point[0] + rr} ${g.point[1]} A ${rr} ${rr} 0 1 1 ${g.point[0] - rr} ${g.point[1]} A ${rr} ${rr} 0 1 1 ${g.point[0] + rr} ${g.point[1]}`), lw);
+    const rr = Math.min(w, h) * 0.13;
+    stroke(new Path2D(`M ${g.point[0] + rr} ${g.point[1]} A ${rr} ${rr} 0 1 1 ${g.point[0] - rr} ${g.point[1]} A ${rr} ${rr} 0 1 1 ${g.point[0] + rr} ${g.point[1]}`), lw);
     ctx.beginPath(); ctx.arc(g.point[0], g.point[1], lw * 0.9, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
     anchor = [g.point[0] + rr * 0.72, g.point[1] - rr * 0.72];
   }
@@ -1375,8 +1462,9 @@ $('#rpGo').onclick = async () => {
 window.__pm = { S, DB };
 
 async function buildReport(cfg) {
+  busy('Đang chuẩn bị báo cáo…');
+  try { await loadPdfLib(); } catch (e) { unbusy(); modal({ title: 'Lỗi', html: esc(e.message) }); return false; }
   const PDFLib = window.PDFLib;
-  if (!PDFLib || !window.fontkit) { modal({ title: 'Lỗi', html: 'Chưa tải xong thư viện tạo PDF. Hãy mở lại app khi có mạng một lần.' }); return false; }
   const { PDFDocument, rgb, degrees } = PDFLib;
   const P = cfg.project, ms = cfg.marks;
   const step = t => { $('#busyText').textContent = t; };
@@ -1561,6 +1649,20 @@ async function buildReport(cfg) {
     }
 
     /* ---- Appendix 2: details ---- */
+    const snips = new Map();
+    if (cfg.detail && cfg.snip) {
+      const groups = new Map();
+      ms.forEach(m => { const k = m.drawingId + '|' + m.page; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(m); });
+      let gi = 0;
+      for (const [k, list] of groups) {
+        gi++; step(`Đang trích vị trí trên bản vẽ (${gi}/${groups.size})…`);
+        try {
+          const pi = await renderPageImage(await getDoc(list[0].drawingId), list[0].page);
+          for (const m of list) snips.set(m.id, await canvasToBlob(snippetFromPage(pi, m, 800, 600), 'image/jpeg', 0.85));
+          pi.c.width = pi.c.height = 0;
+        } catch (e) { console.warn(e); }
+      }
+    }
     if (cfg.detail) {
       newPage();
       text(cfg.drawing ? 'PHỤ LỤC 2' : 'PHỤ LỤC', M, y + 12, B, 13, DARK);
@@ -1609,8 +1711,8 @@ async function buildReport(cfg) {
             rect(x, y, CELLW, CELLH, SOFT);
             try {
               let jpg;
-              if (cell.snip) jpg = await canvasToBlob(await renderSnippet(await getDoc(m.drawingId), m, 800, 600), 'image/jpeg', 0.85);
-              else jpg = cfg.quality === 'high' ? cell.ph.blob : (await compressImage(cell.ph.blob, 1400, 0.78)).blob;
+              if (cell.snip) { jpg = snips.get(m.id); if (!jpg) throw new Error('no snippet'); }
+              else jpg = (cfg.quality === 'high' || cell.ph.blob.size <= 450e3) ? cell.ph.blob : (await compressImage(cell.ph.blob, 1400, 0.78)).blob;
               const im = await out.embedJpg(new Uint8Array(await jpg.arrayBuffer()));
               const k = Math.min(CELLW / im.width, CELLH / im.height), iw = im.width * k, ih = im.height * k;
               pg.drawImage(im, { x: x + (CELLW - iw) / 2, y: H - y - CELLH + (CELLH - ih) / 2, width: iw, height: ih });
@@ -1672,8 +1774,12 @@ async function buildReport(cfg) {
     const bytes = await out.save();
     unbusy();
     const dd = fmtISO(cfg.date).replace(/\//g, '-');
-    const fname = `BaoCao_${cfg.no ? safeName(cfg.no) + '_' : ''}${safeName(P.code || P.name)}_${dd}.pdf`.replace(/\s+/g, '_');
-    await deliverFile(new Blob([bytes], { type: 'application/pdf' }), fname, 'Đã tạo báo cáo');
+    const fname = asciiName(`BaoCao_${cfg.no ? cfg.no + '_' : ''}${P.code || P.name}_${dd}.pdf`);
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    try { await DB.put('reports', { id: uid(), projectId: P.id, name: fname, title: N(cfg.title), no: cfg.no, count: ms.length, size: blob.size, created: Date.now(), blob }); }
+    catch (e) { console.warn('save report', e); }
+    renderReports();
+    await deliverFile(blob, fname, 'Đã tạo báo cáo', 'Báo cáo được lưu trong mục <b>Báo cáo đã xuất</b> của dự án – có thể chia sẻ lại bất cứ lúc nào.');
     return true;
   } catch (e) {
     unbusy(); console.error(e);
@@ -1803,8 +1909,8 @@ function showHelp() {
 }
 let deferredInstall = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; renderInstallBox(); });
-const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function isStandalone() { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; }
+function isIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
 function renderInstallBox() {
   const box = $('#installBox');
   if (isStandalone()) { box.hidden = true; return; }
@@ -1844,3 +1950,4 @@ if ('launchQueue' in window) {
 history.replaceState({ layer: 'home', n: 0 }, '');
 renderHome();
 renderInstallBox();
+setTimeout(() => (window.requestIdleCallback || (f => f()))(() => loadPdfLib().catch(() => {})), 4000);
