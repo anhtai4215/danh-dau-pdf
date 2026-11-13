@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Đánh dấu PDF">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Đánh dấu PDF</title>
+<link rel="stylesheet" href="style.css">
+<script src="lib/pdf-lib.min.js" defer></script>
+<script src="lib/fontkit.umd.min.js" defer></script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="4.5" cy="6" r="1.5" fill="currentColor"/><circle cx="4.5" cy="12" r="1.5" fill="currentColor"/><circle cx="4.5" cy="18" r="1.5" fill="currentColor"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 22s7-6.6 7-12a7 7 0 10-14 0c0 5.4 7 12 7 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.6" fill="currentColor"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="2" fill="currentColor"/><path d="M4 18l5-5 4 4 3-3 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5M5 14v6h14v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="k-point" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 13v6" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="20.5" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="k-rect" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="1" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2"/></symbol>
+  <symbol id="k-cloud" viewBox="0 0 24 24"><path d="M4 9q0-3 3-3q1.5-2.5 4 0q1.5-2.5 4 0q3 0 3 3q2.5 1.5 0 3q2.5 1.5 0 3q0 3-3 3q-1.5 2.5-4 0q-1.5 2.5-4 0q-3 0-3-3q-2.5-1.5 0-3q-2.5-1.5 0-3z" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="k-arrow" viewBox="0 0 24 24"><path d="M5 19L18 6M18 6h-7M18 6v7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<!-- ============ HOME: PROJECTS ============ -->
+<section id="home" class="screen active">
+  <header class="topbar">
+    <div class="brand"><img src="icons/icon-192.png" alt=""><div><h1>Đánh dấu PDF</h1><small>Ghi nhận hiện trường trên bản vẽ</small></div></div>
+    <button class="icon-btn" id="btnHomeMenu" aria-label="Menu"><svg><use href="#i-more"/></svg></button>
+  </header>
+  <main class="home-main">
+    <div id="installBox" class="install-box" hidden></div>
+    <div class="sec-title">Dự án</div>
+    <div id="projList" class="proj-list"></div>
+    <div id="emptyHome" class="empty" hidden>
+      <svg class="empty-ic"><use href="#i-folder"/></svg>
+      <p><b>Chưa có dự án nào</b></p>
+      <p>Tạo dự án, khai báo thông tin (mã dự án, chủ đầu tư, đơn vị lập, logo…) rồi thêm các bản vẽ PDF.</p>
+    </div>
+    <p id="storageInfo" class="storage-info"></p>
+  </main>
+  <div class="home-actions"><button class="btn primary big" id="btnNewProject"><svg><use href="#i-plus"/></svg> Dự án mới</button></div>
+</section>
+
+<!-- ============ PROJECT ============ -->
+<section id="project" class="screen">
+  <header class="topbar">
+    <button class="icon-btn" id="pjBack" aria-label="Quay lại"><svg><use href="#i-back"/></svg></button>
+    <div class="title-2"><b id="pjName">Dự án</b><small id="pjCode"></small></div>
+    <button class="icon-btn" id="pjMenu" aria-label="Menu"><svg><use href="#i-more"/></svg></button>
+  </header>
+  <main class="home-main">
+    <div class="pj-info" id="pjInfo"></div>
+    <div class="sec-title">Thống kê ghi nhận</div>
+    <div class="cat-stats" id="pjStats"></div>
+    <div class="sec-title">Bản vẽ <small id="pjDwgCount"></small></div>
+    <div id="dwgList" class="proj-list"></div>
+    <div id="emptyDwg" class="empty" hidden><p>Chưa có bản vẽ. Bấm <b>“Thêm bản vẽ PDF”</b>.</p></div>
+  </main>
+  <div class="home-actions row2">
+    <button class="btn big2" id="pjReport"><svg><use href="#i-export"/></svg> Lập báo cáo</button>
+    <button class="btn primary big2" id="pjAddDwg"><svg><use href="#i-plus"/></svg> Thêm bản vẽ PDF</button>
+  </div>
+</section>
+
+<!-- ============ VIEWER ============ -->
+<section id="viewer" class="screen">
+  <header class="topbar">
+    <button class="icon-btn" id="btnBack" aria-label="Quay lại"><svg><use href="#i-back"/></svg></button>
+    <div class="title-2 tap" id="vTitleBox"><b id="vTitle">Bản vẽ</b><small id="vSub"></small></div>
+    <button class="icon-btn badge-btn" id="btnList" aria-label="Danh sách"><svg><use href="#i-list"/></svg><span id="listCount">0</span></button>
+    <button class="icon-btn" id="btnViewMenu" aria-label="Menu"><svg><use href="#i-more"/></svg></button>
+  </header>
+  <div id="stage">
+    <div id="content">
+      <canvas id="cvBase"></canvas>
+      <canvas id="cvDetail"></canvas>
+      <svg id="geoLayer" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="mkLayer"></div>
+    </div>
+    <div id="hint" class="hint" hidden></div>
+    <div id="filterBar" class="filter-bar" hidden></div>
+    <div id="pageLoading" class="page-loading" hidden><div class="spinner"></div></div>
+  </div>
+  <div id="toolbar" class="toolbar" hidden>
+    <div class="tb-row" id="tbCats"></div>
+    <div class="tb-row kinds" id="tbKinds"></div>
+  </div>
+  <div class="bottombar">
+    <div class="pager" id="pager">
+      <button class="icon-btn sm" id="pgPrev" aria-label="Trang trước"><svg><use href="#i-left"/></svg></button>
+      <button class="pg-label" id="pgLabel">1/1</button>
+      <button class="icon-btn sm" id="pgNext" aria-label="Trang sau"><svg><use href="#i-right"/></svg></button>
+    </div>
+    <button class="tool badge-tool" id="btnFilter" aria-label="Bộ lọc"><svg><use href="#i-filter"/></svg><span id="filterDot" hidden></span></button>
+    <button class="tool" id="btnThumbs" aria-label="Hiện ảnh trên bản vẽ"><svg><use href="#i-image"/></svg></button>
+    <button class="tool" id="btnFit" aria-label="Xem toàn trang"><svg><use href="#i-fit"/></svg></button>
+    <button class="fab" id="btnAdd"><svg><use href="#i-pin"/></svg><span>Đánh dấu</span></button>
+  </div>
+</section>
+
+<!-- ============ MARKER SHEET ============ -->
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-grip"></div>
+  <div class="sheet-head">
+    <span class="code-badge" id="shCode">VM-01</span>
+    <input id="shTitle" type="text" placeholder="Tiêu đề / hạng mục…" autocomplete="off" enterkeyhint="done">
+    <button class="icon-btn dark" id="shClose" aria-label="Đóng"><svg><use href="#i-close"/></svg></button>
+  </div>
+  <div class="sheet-body">
+    <div class="cat-row" id="shCats"></div>
+    <div class="status-row" id="shStatus"></div>
+    <div class="row2">
+      <label class="fld"><span>Phụ trách</span><input id="shOwner" type="text" list="ownerList" placeholder="Đơn vị / người xử lý" autocomplete="off"></label>
+      <label class="fld due"><span>Hạn xử lý</span><input id="shDue" type="date"></label>
+    </div>
+    <datalist id="ownerList"></datalist>
+    <textarea id="shNote" rows="3" placeholder="Ghi chú: mô tả nội dung, vị trí, kích thước…"></textarea>
+    <div id="shExtra"></div>
+    <div class="sec-label"><span>Ảnh tại vị trí</span><small id="shPhotoCount"></small></div>
+    <div class="photo-grid" id="shPhotos"></div>
+    <div class="add-photo-row">
+      <button class="btn" id="btnCamera"><svg><use href="#i-camera"/></svg> Chụp ảnh</button>
+      <button class="btn" id="btnGallery"><svg><use href="#i-image"/></svg> Thư viện</button>
+    </div>
+    <p class="meta" id="shMeta"></p>
+  </div>
+  <div class="sheet-actions">
+    <button class="btn ghost" id="shMove"><svg><use href="#i-move"/></svg> <span>Di chuyển</span></button>
+    <button class="btn ghost danger" id="shDelete"><svg><use href="#i-trash"/></svg> Xóa</button>
+    <button class="btn primary" id="shDone">Xong</button>
+  </div>
+</div>
+
+<!-- ============ LIST PANEL ============ -->
+<div id="listPanel" class="panel" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="lpClose" aria-label="Đóng"><svg><use href="#i-back"/></svg></button>
+    <h2>Danh sách</h2>
+    <button class="icon-btn badge-tool" id="lpFilter" aria-label="Bộ lọc"><svg><use href="#i-filter"/></svg><span id="lpFilterDot" hidden></span></button>
+    <button class="btn primary sm-btn" id="lpReport"><svg><use href="#i-export"/></svg> Báo cáo</button>
+  </header>
+  <div class="lp-tools">
+    <div class="search"><svg><use href="#i-search"/></svg><input id="lpSearch" type="search" placeholder="Tìm theo mã, tiêu đề, ghi chú, phụ trách…"></div>
+    <div class="lp-sum" id="lpSum"></div>
+  </div>
+  <div class="lp-list" id="lpList"></div>
+</div>
+
+<!-- ============ PROJECT INFO PANEL ============ -->
+<div id="projPanel" class="panel" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="ppClose" aria-label="Đóng"><svg><use href="#i-back"/></svg></button>
+    <h2 id="ppTitle">Thông tin dự án</h2>
+  </header>
+  <div class="rp-body">
+    <section class="rp-card">
+      <h4>Dự án</h4>
+      <label class="fld"><span>Tên dự án / công trình *</span><input id="ppName" type="text" placeholder="VD: Nhà xưởng Văn Giang"></label>
+      <div class="row2">
+        <label class="fld"><span>Mã dự án</span><input id="ppCode" type="text" placeholder="VD: VG-01"></label>
+        <label class="fld"><span>Địa điểm</span><input id="ppLoc" type="text" placeholder="Tỉnh / TP"></label>
+      </div>
+      <label class="fld"><span>Chủ đầu tư</span><input id="ppOwner" type="text"></label>
+      <label class="fld"><span>Kính gửi (mặc định khi lập báo cáo)</span><textarea id="ppTo" rows="2" placeholder="VD: Ban QLDA; Tư vấn giám sát; Tư vấn thiết kế"></textarea></label>
+    </section>
+    <section class="rp-card">
+      <h4>Đơn vị lập báo cáo</h4>
+      <div class="logo-row">
+        <div class="logo-box"><img id="ppLogoImg" alt="" hidden><span id="ppLogoNone">Logo</span></div>
+        <div class="logo-btns"><button class="btn" id="ppLogoPick">Chọn logo</button><button class="btn ghost danger" id="ppLogoDel" hidden>Bỏ logo</button></div>
+      </div>
+      <label class="fld"><span>Tên công ty / đơn vị lập</span><input id="ppCompany" type="text"></label>
+      <label class="fld"><span>Người lập</span><input id="ppAuthor" type="text" placeholder="Họ tên – chức danh"></label>
+      <label class="fld"><span>Các bên ký xác nhận (mỗi dòng một bên)</span><textarea id="ppSigners" rows="3"></textarea></label>
+      <div class="row2">
+        <label class="fld"><span>Tiền tố số báo cáo</span><input id="ppPrefix" type="text" placeholder="VD: VG/BC-"></label>
+        <label class="fld"><span>Số báo cáo tiếp theo</span><input id="ppSeq" type="number" min="1" inputmode="numeric"></label>
+      </div>
+      <p class="hint-txt">Số báo cáo tự tăng sau mỗi lần lập, ví dụ VG/BC-01, VG/BC-02…</p>
+    </section>
+  </div>
+  <div class="rp-actions"><button class="btn primary big" id="ppSave">Lưu thông tin dự án</button></div>
+</div>
+
+<!-- ============ REPORT PANEL ============ -->
+<div id="reportPanel" class="panel" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="rpClose" aria-label="Đóng"><svg><use href="#i-back"/></svg></button>
+    <h2>Lập báo cáo PDF</h2>
+  </header>
+  <div class="rp-body">
+    <section class="rp-card">
+      <h4>Nội dung đưa vào báo cáo</h4>
+      <div class="fld"><span>Loại ghi nhận</span><div class="chips wrap" id="rpCats"></div></div>
+      <label class="fld"><span>Trạng thái</span><select id="rpSt">
+        <option value="all">Tất cả</option><option value="open">Chưa xong (đang mở)</option><option value="closed">Đã xong / đã đóng</option>
+      </select></label>
+      <div class="fld"><span>Bản vẽ</span><div id="rpDwgs" class="dwg-checks"></div></div>
+      <p class="rp-count" id="rpCount"></p>
+    </section>
+    <section class="rp-card">
+      <h4>Thông tin báo cáo <small id="rpProjHint"></small></h4>
+      <label class="fld"><span>Tiêu đề báo cáo</span><input id="rpTitle" type="text"></label>
+      <div class="row2">
+        <label class="fld"><span>Số báo cáo</span><input id="rpNo" type="text"></label>
+        <label class="fld"><span>Ngày lập</span><input id="rpDate" type="date"></label>
+      </div>
+      <label class="fld"><span>Kính gửi</span><textarea id="rpTo" rows="2"></textarea></label>
+      <label class="fld"><span>Nội dung tóm tắt / kiến nghị</span><textarea id="rpSummary" rows="3" placeholder="Tóm tắt tình hình, đề nghị các bên phản hồi trước ngày…"></textarea></label>
+      <button class="btn ghost" id="rpEditProj"><svg><use href="#i-edit"/></svg> Sửa đơn vị lập, logo, các bên ký…</button>
+    </section>
+    <section class="rp-card">
+      <h4>Tùy chọn</h4>
+      <label class="ck"><input type="checkbox" id="rpDrawing" checked><span><b>Phụ lục 1</b> – Bản vẽ có ký hiệu đánh dấu</span></label>
+      <label class="ck"><input type="checkbox" id="rpDetail" checked><span><b>Phụ lục 2</b> – Chi tiết từng điểm kèm ảnh hiện trường</span></label>
+      <label class="ck"><input type="checkbox" id="rpSnip" checked><span>Kèm ảnh trích vị trí trên bản vẽ</span></label>
+      <div class="row2">
+        <label class="fld"><span>Số ảnh mỗi hàng</span><select id="rpPerRow"><option value="2">2 ảnh (to, rõ)</option><option value="3">3 ảnh (gọn)</option></select></label>
+        <label class="fld"><span>Chất lượng ảnh</span><select id="rpQuality"><option value="std">Tiêu chuẩn (file nhẹ)</option><option value="high">Cao (file nặng)</option></select></label>
+      </div>
+    </section>
+  </div>
+  <div class="rp-actions"><button class="btn primary big" id="rpGo"><svg><use href="#i-export"/></svg> Tạo báo cáo PDF</button></div>
+</div>
+
+<!-- ============ PHOTO VIEWER ============ -->
+<div id="photoViewer" class="photo-viewer" hidden>
+  <div class="pv-top">
+    <button class="icon-btn" id="pvClose" aria-label="Đóng"><svg><use href="#i-close"/></svg></button>
+    <span id="pvCounter">1/1</span>
+    <button class="icon-btn" id="pvDelete" aria-label="Xóa ảnh"><svg><use href="#i-trash"/></svg></button>
+  </div>
+  <div class="pv-stage" id="pvStage"><img id="pvImg" alt=""></div>
+  <button class="pv-nav prev" id="pvPrev" aria-label="Ảnh trước"><svg><use href="#i-left"/></svg></button>
+  <button class="pv-nav next" id="pvNext" aria-label="Ảnh sau"><svg><use href="#i-right"/></svg></button>
+  <div class="pv-caption" id="pvCaption"></div>
+</div>
+
+<!-- ============ MENU / MODAL / TOAST / BUSY ============ -->
+<div id="menuBackdrop" class="menu-backdrop" hidden><div class="menu" id="menu"></div></div>
+<div id="modal" class="modal" hidden>
+  <div class="modal-box">
+    <h3 id="mTitle"></h3>
+    <div id="mBody" class="modal-body"></div>
+    <div id="mActions" class="modal-actions"></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<div id="busy" class="busy" hidden><div class="busy-box"><div class="spinner"></div><div id="busyText">Đang xử lý…</div></div></div>
+
+<input type="file" id="inPdf" accept="application/pdf,.pdf" multiple hidden>
+<input type="file" id="inCamera" accept="image/*" capture="environment" hidden>
+<input type="file" id="inGallery" accept="image/*" multiple hidden>
+<input type="file" id="inLogo" accept="image/*" hidden>
+<input type="file" id="inBackup" accept=".pmk,application/octet-stream,*/*" hidden>
+</body>
+</html>
