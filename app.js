@@ -1,7 +1,7 @@
 /* Đánh dấu PDF v2 – ghi nhận hiện trường trên bản vẽ PDF (Dự án → Bản vẽ → Điểm ghi nhận).
    Dữ liệu lưu cục bộ trên điện thoại (IndexedDB). Không gửi dữ liệu đi đâu. */
-import * as pdfjsLib from './lib/pdf.min.js';
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.js', import.meta.url).href;
+import * as pdfjsLib from './pdf.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.js', import.meta.url).href;
 
 const APP_VERSION = '2.0.0';
 const $ = (s, r = document) => r.querySelector(s);
@@ -1180,7 +1180,7 @@ async function fetchBytes(url) {
 let fontCache = null;
 async function embedFonts(doc) {
   doc.registerFontkit(window.fontkit);
-  if (!fontCache) fontCache = { r: await fetchBytes('fonts/BeVietnamPro-Regular.ttf'), b: await fetchBytes('fonts/BeVietnamPro-Bold.ttf') };
+  if (!fontCache) fontCache = { r: await fetchBytes('BeVietnamPro-Regular.ttf'), b: await fetchBytes('BeVietnamPro-Bold.ttf') };
   return { R: await doc.embedFont(fontCache.r, { subset: true }), B: await doc.embedFont(fontCache.b, { subset: true }) };
 }
 /** Draw a category symbol (vector) centred at user point (cx,cy). */

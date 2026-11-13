@@ -1,10 +1,10 @@
 /* Service worker: lưu toàn bộ app vào bộ nhớ đệm để chạy offline. Tăng VERSION khi cập nhật app. */
-const VERSION = 'pdfmark-v2.0.0';
+const VERSION = 'pdfmark-v2.0.1';
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './manifest.webmanifest',
-  './lib/pdf.min.js', './lib/pdf.worker.min.js', './lib/pdf-lib.min.js', './lib/fontkit.umd.min.js',
-  './fonts/BeVietnamPro-Regular.ttf', './fonts/BeVietnamPro-Bold.ttf',
-  './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png',
+  './pdf.min.js', './pdf.worker.min.js', './pdf-lib.min.js', './fontkit.umd.min.js',
+  './BeVietnamPro-Regular.ttf', './BeVietnamPro-Bold.ttf',
+  './icon-192.png', './icon-512.png', './maskable-512.png', './apple-touch-icon.png',
 ];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

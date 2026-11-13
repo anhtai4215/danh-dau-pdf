@@ -5,8 +5,8 @@ Toàn bộ bản vẽ, ghi chú và ảnh **lưu ngay trong điện thoại**, k
 
 ## Cài đặt / cập nhật
 
-1. Upload **toàn bộ nội dung** thư mục `danh-dau-pdf` lên repo GitHub (đè file cũ):
-   index.html, app.js, style.css, sw.js, manifest.webmanifest và các thư mục `lib`, `icons`, `fonts`.
+1. Vào repo GitHub → **Add file → Upload files** → **choose your files** → mở thư mục `danh-dau-pdf`,
+   nhấn **Ctrl + A** để chọn **tất cả 19 file** (không có thư mục con) → **Open** → **Commit changes**.
 2. Lần đầu: vào **Settings → Pages** → Branch `main`, thư mục `/ (root)` → **Save**.
 3. Mở địa chỉ `https://<tài-khoản>.github.io/<tên-repo>/` trên điện thoại:
    - **Android (Chrome):** bấm **Cài đặt** hoặc menu ⋮ → **Cài đặt ứng dụng**.
