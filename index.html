@@ -125,6 +125,11 @@
 <!-- ============ MARKER SHEET ============ -->
 <div id="sheet" class="sheet" hidden>
   <div class="sheet-grip"></div>
+  <div class="sheet-nav">
+    <button class="nav-btn" id="shPrev" aria-label="Điểm trước"><svg><use href="#i-left"/></svg>Trước</button>
+    <span id="shPos">1 / 1</span>
+    <button class="nav-btn" id="shNext" aria-label="Điểm sau">Sau<svg><use href="#i-right"/></svg></button>
+  </div>
   <div class="sheet-head">
     <span class="code-badge" id="shCode">VM-01</span>
     <input id="shTitle" type="text" placeholder="Tiêu đề / hạng mục…" autocomplete="off" enterkeyhint="done">

@@ -3,7 +3,7 @@
 import * as pdfjsLib from './pdf.min.js';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.js', import.meta.url).href;
 
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.2.0';
 const $ = (s, r = document) => r.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -872,7 +872,7 @@ function svgEl(tag, attrs) { const el = document.createElementNS(NS, tag); for (
 function renderMarks() {
   if (!S.base) return;
   mkLayer.innerHTML = ''; geo.innerHTML = '';
-  const items = dwgMarkers().filter(m => m.page === S.pageNum && passFilter(m)).map(m => ({ m, g: markGeom(m, vpt) }))
+  const items = dwgMarkers().filter(m => m.page === S.pageNum && (passFilter(m) || m.id === S.cur?.id)).map(m => ({ m, g: markGeom(m, vpt) }))
     .sort((p, q) => p.g.anchor[1] - q.g.anchor[1]);
   const frag = document.createDocumentFragment();
   for (const { m, g } of items) {
@@ -1001,6 +1001,7 @@ function paintSheet() {
     row.appendChild(b);
   });
   $('#shMove span').textContent = m.kind === 'point' ? 'Di chuyển' : 'Vẽ lại';
+  updateNav();
   $('#shMeta').textContent = `${CATS[m.cat].name} · ${KINDS[m.kind]} · Trang ${m.page} · Tạo ${fmtDate(m.created)} · Sửa ${fmtDate(m.updated)}`;
 }
 function renderExtra() {
@@ -1033,20 +1034,72 @@ function fillOwnerList() {
   ['Nhà thầu', 'Tư vấn giám sát', 'Tư vấn thiết kế', 'Chủ đầu tư'].forEach(n => names.add(n));
   $('#ownerList').innerHTML = [...names].map(n => `<option value="${esc(n)}">`).join('');
 }
-function openSheet(m) {
+function openSheet(m, opts = {}) {
   const already = S.cur && !sheet.hidden;
   if (already && S.cur.id !== m.id) flushSheet();
   S.cur = m;
   $('#shTitle').value = m.title || ''; $('#shNote').value = m.note || '';
   $('#shOwner').value = m.owner || ''; $('#shDue').value = m.due || '';
   fillOwnerList(); paintSheet(); renderExtra(); renderSheetPhotos();
-  if (m.page !== S.pageNum) gotoPage(m.page).then(() => { renderMarks(); revealMarker(m); }); else renderMarks();
+  const show = opts.center ? centerMarker : revealMarker;
+  if (m.page !== S.pageNum) gotoPage(m.page).then(() => { renderMarks(); show(m); }); else renderMarks();
   if (!already) {
     sheet.hidden = false;
-    requestAnimationFrame(() => requestAnimationFrame(() => { sheet.classList.add('open'); if (m.page === S.pageNum) revealMarker(m); }));
+    requestAnimationFrame(() => requestAnimationFrame(() => { sheet.classList.add('open'); if (m.page === S.pageNum) show(m); }));
     pushLayer('sheet', hideSheet);
-  } else if (m.page === S.pageNum) revealMarker(m);
+  } else if (m.page === S.pageNum) show(m);
 }
+/* ---------- step through marks (‹ Trước / Sau ›) ---------- */
+/** Same order as the list: by category, then number; respects the active filter (the open mark always stays in). */
+function navList() { return sortMarks(dwgMarkers().filter(m => passFilter(m) || m.id === S.cur?.id)); }
+function updateNav() {
+  const l = navList(), i = l.findIndex(m => m.id === S.cur?.id);
+  $('#shPos').textContent = `${i + 1} / ${l.length}${filterActive() ? ' · đang lọc' : ''}`;
+  $('#shPrev').disabled = i <= 0; $('#shNext').disabled = i < 0 || i >= l.length - 1;
+}
+function stepMark(d) {
+  const l = navList(), i = l.findIndex(m => m.id === S.cur?.id), n = l[i + d];
+  if (!n) { toast(d > 0 ? 'Đã tới điểm cuối' : 'Đã tới điểm đầu'); return; }
+  flushSheet(); document.activeElement?.blur?.();
+  openSheet(n, { center: true });
+  setTimeout(() => mkLayer.querySelector(`[data-id="${n.id}"]`)?.classList.add('flash'), 320);
+}
+/** Bring a mark to the middle of the area above the sheet, zoomed in enough to check it. */
+function centerMarker(m) {
+  if (!S.base) return;
+  const [x, y] = markGeom(m, vpt).anchor, H = stage.clientHeight;
+  const sheetH = window.innerWidth >= 760 ? 0 : Math.max(0, (sheet.getBoundingClientRect().height || H * 0.6) - $('.bottombar').offsetHeight);
+  const visH = Math.max(120, H - sheetH);
+  focusBase(x, y, Math.max(S.view.s, 2.5), 0.5, clamp((visH * 0.5) / H, 0.18, 0.5));
+}
+$('#shPrev').onclick = () => stepMark(-1);
+$('#shNext').onclick = () => stepMark(1);
+document.addEventListener('keydown', e => {
+  if (!S.cur || sheet.hidden || e.target.closest('input,textarea,select')) return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); stepMark(1); }
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); stepMark(-1); }
+});
+/* Compact sheet: only nav + title + status, so more of the drawing stays visible while reviewing. */
+function setCompact(on, silent) {
+  sheet.classList.toggle('compact', on);
+  try { localStorage.setItem('pm.compact', on ? '1' : '0'); } catch {}
+  if (!silent) toast(on ? 'Đã thu gọn thẻ – chạm thanh ngang để mở rộng' : 'Đã mở rộng thẻ');
+  if (S.cur) setTimeout(() => centerMarker(S.cur), 240);
+}
+try { if (localStorage.getItem('pm.compact') === '1') sheet.classList.add('compact'); } catch {}
+$('.sheet-grip').addEventListener('click', () => setCompact(!sheet.classList.contains('compact')));
+(() => { // swipe left/right = previous/next mark; swipe down/up on the grip = compact/expand
+  let sx = null, sy = 0;
+  ['.sheet-nav', '.sheet-grip', '.sheet-head'].forEach(sel => {
+    const el = $(sel);
+    el.addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    el.addEventListener('touchend', e => {
+      if (sx === null) return; const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) stepMark(dx < 0 ? 1 : -1);
+      else if (sel !== '.sheet-head' && Math.abs(dy) > 40 && Math.abs(dy) > Math.abs(dx) * 1.5) setCompact(dy > 0);
+    });
+  });
+})();
 function revealMarker(m) {
   if (!S.base) return;
   const [x, y] = markGeom(m, vpt).anchor, v = S.view;
@@ -1182,7 +1235,7 @@ function updateFilterUI() {
     bar.hidden = false;
   } else bar.hidden = true;
 }
-function afterFilter() { updateFilterUI(); renderMarks(); if (!$('#listPanel').hidden) renderList(); }
+function afterFilter() { updateFilterUI(); renderMarks(); if (!$('#listPanel').hidden) renderList(); if (S.cur && !sheet.hidden) updateNav(); }
 async function openFilter() {
   const f = { ...S.filter, cats: [...S.filter.cats] };
   const owners = [...new Set(S.markers.map(m => (m.owner || '').trim()).filter(Boolean))].sort();

@@ -1,5 +1,5 @@
 /* Service worker: lưu toàn bộ app vào bộ nhớ đệm để chạy offline. Tăng VERSION khi cập nhật app. */
-const VERSION = 'pdfmark-v2.1.0';
+const VERSION = 'pdfmark-v2.2.0';
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './manifest.webmanifest',
   './pdf.min.js', './pdf.worker.min.js', './pdf-lib.min.js', './fontkit.umd.min.js',
