@@ -37,6 +37,8 @@
   <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
   <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3z" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
   <symbol id="k-point" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 13v6" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="20.5" r="1.6" fill="currentColor"/></symbol>
   <symbol id="k-rect" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="1" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2"/></symbol>
@@ -48,6 +50,7 @@
 <section id="home" class="screen active">
   <header class="topbar">
     <div class="brand"><img src="./icon-192.png" alt=""><div><h1>Đánh dấu PDF</h1><small>Ghi nhận hiện trường trên bản vẽ</small></div></div>
+    <button class="lang-btn" id="btnLang" aria-label="Ngôn ngữ"><svg><use href="#i-globe"/></svg><span id="langCode"></span></button>
     <button class="icon-btn" id="btnHomeMenu" aria-label="Menu"><svg><use href="#i-more"/></svg></button>
   </header>
   <main class="home-main">
@@ -241,6 +244,7 @@
     </section>
     <section class="rp-card">
       <h4>Tùy chọn</h4>
+      <label class="fld"><span>Ngôn ngữ báo cáo</span><select id="rpLang"></select></label>
       <label class="ck"><input type="checkbox" id="rpDrawing" checked><span><b>Phụ lục 1</b> – Bản vẽ có ký hiệu đánh dấu</span></label>
       <label class="ck"><input type="checkbox" id="rpDetail" checked><span><b>Phụ lục 2</b> – Chi tiết từng điểm kèm ảnh hiện trường</span></label>
       <label class="ck"><input type="checkbox" id="rpSnip" checked><span>Kèm ảnh trích vị trí trên bản vẽ</span></label>

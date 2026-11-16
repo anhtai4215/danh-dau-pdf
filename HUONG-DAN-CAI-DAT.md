@@ -6,7 +6,7 @@ Toàn bộ bản vẽ, ghi chú và ảnh **lưu ngay trong điện thoại**, k
 ## Cài đặt / cập nhật
 
 1. Vào repo GitHub → **Add file → Upload files** → **choose your files** → mở thư mục `danh-dau-pdf`,
-   nhấn **Ctrl + A** để chọn **tất cả 19 file** (không có thư mục con) → **Open** → **Commit changes**.
+   nhấn **Ctrl + A** để chọn **tất cả 23 file** (không có thư mục con) → **Open** → **Commit changes**.
 2. Lần đầu: vào **Settings → Pages** → Branch `main`, thư mục `/ (root)` → **Save**.
 3. Mở địa chỉ `https://<tài-khoản>.github.io/<tên-repo>/` trên điện thoại:
    - **Android (Chrome):** bấm **Cài đặt** hoặc menu ⋮ → **Cài đặt ứng dụng**.
@@ -77,3 +77,9 @@ Trang dự án → **Lập báo cáo** (hoặc từ menu bản vẽ / Danh sách
 
 Menu dự án → **Sao lưu dự án (.pmk)**: gồm toàn bộ bản vẽ, điểm và ảnh. Mở app trên máy khác → **Khôi phục**.
 Gỡ app hoặc xóa dữ liệu trình duyệt sẽ mất dữ liệu, nên sao lưu định kỳ. Đọc được cả file .pmk của bản cũ.
+
+## Ngôn ngữ (từ bản 2.4)
+- Bấm nút **🌐 VI / EN / 中文** ở góc trên màn hình chính để đổi giao diện: Tiếng Việt, English, 简体中文. App tải lại để áp dụng.
+- Khi lập báo cáo PDF có mục **Ngôn ngữ báo cáo** – có thể dùng app tiếng Việt nhưng xuất báo cáo tiếng Anh hoặc tiếng Trung.
+- Nội dung tự nhập (tiêu đề, ghi chú, tên dự án…) giữ nguyên như đã gõ; gõ tiếng Trung vẫn hiển thị đúng trong báo cáo.
+- Phông chữ tiếng Trung (2 file NotoSansSC) chỉ tải khi cần, lần đầu xuất báo cáo tiếng Trung cần có mạng.

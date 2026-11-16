@@ -1,9 +1,11 @@
 /* Đánh dấu PDF v2 – ghi nhận hiện trường trên bản vẽ PDF (Dự án → Bản vẽ → Điểm ghi nhận).
    Dữ liệu lưu cục bộ trên điện thoại (IndexedDB). Không gửi dữ liệu đi đâu. */
 import * as pdfjsLib from './pdf.min.js';
+import { t, tl, getLang, setLang, saveLang, LANGS, translateDOM } from './i18n.js';
+translateDOM(); document.title = t("Đánh dấu PDF");
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.js', import.meta.url).href;
 
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 const $ = (s, r = document) => r.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -130,7 +132,7 @@ function idb() {
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
-    r.onblocked = () => toast('Hãy đóng các cửa sổ khác của app để cập nhật dữ liệu');
+    r.onblocked = () => toast(t("Hãy đóng các cửa sổ khác của app để cập nhật dữ liệu"));
   });
   return _db;
 }
@@ -158,12 +160,12 @@ function migrateV1(tx) {
 async function op(stores, mode, fn) {
   const d = await idb();
   return new Promise((res, rej) => {
-    const t = d.transaction(stores, mode);
-    let out; const r = fn(t);
+    const tx = d.transaction(stores, mode);
+    let out; const r = fn(tx);
     if (r && 'onsuccess' in r) r.onsuccess = () => { out = r.result; };
-    t.oncomplete = () => res(out);
-    t.onerror = () => rej(t.error);
-    t.onabort = () => rej(t.error || new Error('Giao dịch bị hủy (có thể do hết dung lượng)'));
+    tx.oncomplete = () => res(out);
+    tx.onerror = () => rej(tx.error);
+    tx.onabort = () => rej(tx.error || new Error(t("Giao dịch bị hủy (có thể do hết dung lượng)")));
   });
 }
 const DB = {
@@ -193,7 +195,7 @@ function loadPdfLib() {
   if (window.PDFLib && window.fontkit) return Promise.resolve();
   if (!pdfLibP) pdfLibP = Promise.all(['pdf-lib.min.js', 'fontkit.umd.min.js'].map(src => new Promise((res, rej) => {
     const sc = document.createElement('script'); sc.src = src; sc.async = true;
-    sc.onload = res; sc.onerror = () => { pdfLibP = null; rej(new Error('Không tải được thư viện ' + src + ' – hãy mở app khi có mạng một lần.')); };
+    sc.onload = res; sc.onerror = () => { pdfLibP = null; rej(new Error(t("Không tải được thư viện ") + src + t(" – hãy mở app khi có mạng một lần."))); };
     document.head.appendChild(sc);
   })));
   return pdfLibP;
@@ -206,7 +208,7 @@ function toast(msg, ms = 2600) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
-function busy(text) { $('#busyText').textContent = text || 'Đang xử lý…'; $('#busy').hidden = false; }
+function busy(text) { $('#busyText').textContent = text || t("Đang xử lý…"); $('#busy').hidden = false; }
 function unbusy() { $('#busy').hidden = true; }
 function modal({ title, html = '', buttons = [{ label: 'OK', value: true, cls: 'primary' }], onOpen, cls = '' }) {
   return new Promise(resolve => {
@@ -228,12 +230,12 @@ function modal({ title, html = '', buttons = [{ label: 'OK', value: true, cls: '
     onOpen && onOpen($('#mBody'), finish);
   });
 }
-const confirmBox = (title, html, okLabel = 'Đồng ý', danger = false) =>
-  modal({ title, html, buttons: [{ label: 'Hủy', value: false }, { label: okLabel, value: true, cls: danger ? 'primary danger-bg' : 'primary' }] });
+const confirmBox = (title, html, okLabel = t("Đồng ý"), danger = false) =>
+  modal({ title, html, buttons: [{ label: t("Hủy"), value: false }, { label: okLabel, value: true, cls: danger ? 'primary danger-bg' : 'primary' }] });
 async function promptBox(title, value = '', placeholder = '') {
   return modal({
     title, html: `<input type="text" id="pbIn" value="${esc(value)}" placeholder="${esc(placeholder)}">`,
-    buttons: [{ label: 'Hủy', value: null }, { label: 'Lưu', value: () => $('#pbIn').value.trim(), cls: 'primary' }],
+    buttons: [{ label: t("Hủy"), value: null }, { label: t("Lưu"), value: () => $('#pbIn').value.trim(), cls: 'primary' }],
     onOpen: (b, finish) => { const i = $('#pbIn', b); setTimeout(() => { i.focus(); i.select(); }, 50); i.onkeydown = e => { if (e.key === 'Enter') finish(i.value.trim()); }; },
   });
 }
@@ -273,31 +275,31 @@ async function shareFile(file) {
   catch (e) {
     if (e.name === 'AbortError') return false;
     try { await navigator.share({ files: [file], title: file.name }); return true; } catch (e2) { if (e2.name === 'AbortError') return false; }
-    toast('Không mở được bảng chia sẻ – chuyển sang lưu file'); await saveFile(file); return false;
+    toast(t("Không mở được bảng chia sẻ – chuyển sang lưu file")); await saveFile(file); return false;
   }
 }
 async function saveFile(file) {
   if (window.showSaveFilePicker && !/Android|iPhone|iPad/i.test(navigator.userAgent)) {
     try {
       const h = await window.showSaveFilePicker({ suggestedName: file.name, types: [{ description: 'File', accept: { [file.type || 'application/octet-stream']: ['.' + file.name.split('.').pop()] } }] });
-      const w = await h.createWritable(); await w.write(file); await w.close(); toast('Đã lưu file'); return;
+      const w = await h.createWritable(); await w.write(file); await w.close(); toast(t("Đã lưu file")); return;
     } catch (e) { if (e.name === 'AbortError') return; }
   }
   downloadBlob(file, file.name);
-  toast('Đã tải về – xem trong thư mục Tải xuống (Downloads)', 4000);
+  toast(t("Đã tải về – xem trong thư mục Tải xuống (Downloads)"), 4000);
 }
 /** Show a dialog so share/save happens inside a real tap (required by iOS / Android). */
-async function deliverFile(blob, filename, title = 'File đã sẵn sàng', note = '') {
+async function deliverFile(blob, filename, title = t("File đã sẵn sàng"), note = '') {
   const file = new File([blob], asciiName(filename), { type: blob.type || 'application/octet-stream' });
   const share = canShareFile(file), ios = isIOS(), iosApp = ios && isStandalone();
-  const btns = [{ label: 'Đóng', value: 'close' }];
-  if (!iosApp || !share) btns.push({ label: 'Lưu về máy', value: 'save', cls: share ? '' : 'primary' });
-  if (share) btns.push({ label: 'Chia sẻ…', value: 'share', cls: 'primary' });
+  const btns = [{ label: t("Đóng"), value: 'close' }];
+  if (!iosApp || !share) btns.push({ label: t("Lưu về máy"), value: 'save', cls: share ? '' : 'primary' });
+  if (share) btns.push({ label: t("Chia sẻ…"), value: 'share', cls: 'primary' });
   await modal({
     title, cls: 'deliver',
     html: `<div class="dl-file"><svg><use href="#i-doc"/></svg><div><b>${esc(file.name)}</b><small>${fmtSize(blob.size)}</small></div></div>
-      ${share ? `<p class="dl-tip"><b>Chia sẻ</b> để gửi thẳng sang Zalo, Email, Messenger, Google Drive, OneDrive…${ios ? (file.type.startsWith('image/') ? ' hoặc chọn <b>“Lưu hình ảnh”</b> để lưu vào thư viện Ảnh.' : ' hoặc chọn <b>“Lưu vào Tệp”</b> để lưu trên iPhone.') : ''}</p>` :
-        `<p class="dl-tip">Thiết bị này không hỗ trợ chia sẻ trực tiếp – bấm <b>Lưu về máy</b> rồi gửi file từ thư mục Tải xuống.</p>`}
+      ${share ? t("<p class=\"dl-tip\"><b>Chia sẻ</b> để gửi thẳng sang Zalo, Email, Messenger, Google Drive, OneDrive…{0}</p>", [ios ? (file.type.startsWith('image/') ? t(" hoặc chọn <b>“Lưu hình ảnh”</b> để lưu vào thư viện Ảnh.") : t(" hoặc chọn <b>“Lưu vào Tệp”</b> để lưu trên iPhone.")) : '']) :
+        t("<p class=\"dl-tip\">Thiết bị này không hỗ trợ chia sẻ trực tiếp – bấm <b>Lưu về máy</b> rồi gửi file từ thư mục Tải xuống.</p>")}
       ${note ? `<p class="dl-tip">${note}</p>` : ''}`,
     buttons: btns.map(b => ({ ...b, value: () => {
       if (b.value === 'share') shareFile(file);
@@ -316,7 +318,7 @@ function loadImage(src) {
     const url = src instanceof Blob ? URL.createObjectURL(src) : src;
     const img = new Image();
     img.onload = () => { res(img); if (src instanceof Blob) setTimeout(() => URL.revokeObjectURL(url), 0); };
-    img.onerror = () => rej(new Error('Không đọc được ảnh'));
+    img.onerror = () => rej(new Error(t("Không đọc được ảnh")));
     img.src = url;
   });
 }
@@ -362,28 +364,24 @@ async function renderHome() {
     const mk = ms.filter(m => m.projectId === p.id);
     const open = mk.filter(m => !isClosed(m)).length, over = mk.filter(isOverdue).length;
     const el = document.createElement('div'); el.className = 'proj'; el.setAttribute('role', 'button');
-    el.innerHTML = `<div class="th" style="background-image:url('${dws[0]?.thumb ? blobURL('dt' + dws[0].id, dws[0].thumb) : ''}')"></div>
-      <div class="info"><div class="name">${esc(p.name)}</div>
-        <div class="meta">${p.code ? esc(p.code) + ' · ' : ''}${dws.length} bản vẽ · ${mk.length} điểm</div>
-        <div class="dots">${mk.length ? `<span class="dot"><i style="background:${open ? '#e5484d' : '#16a34a'}"></i>${open} chưa xong</span>` : ''}${over ? `<span class="dot" style="color:#dc2626"><i style="background:#dc2626"></i>${over} quá hạn</span>` : ''}<span class="dot">${fmtDate(p.updated)}</span></div></div>
-      <button class="icon-btn dark more" aria-label="Tùy chọn"><svg><use href="#i-more"/></svg></button>`;
+    el.innerHTML = t("<div class=\"th\" style=\"background-image:url('{0}')\"></div>\n      <div class=\"info\"><div class=\"name\">{1}</div>\n        <div class=\"meta\">{2}{3} bản vẽ · {4} điểm</div>\n        <div class=\"dots\">{5}{6}<span class=\"dot\">{7}</span></div></div>\n      <button class=\"icon-btn dark more\" aria-label=\"Tùy chọn\"><svg><use href=\"#i-more\"/></svg></button>", [dws[0]?.thumb ? blobURL('dt' + dws[0].id, dws[0].thumb) : '', esc(p.name), p.code ? esc(p.code) + ' · ' : '', dws.length, mk.length, mk.length ? t("<span class=\"dot\"><i style=\"background:{0}\"></i>{1} chưa xong</span>", [open ? '#e5484d' : '#16a34a', open]) : '', over ? t("<span class=\"dot\" style=\"color:#dc2626\"><i style=\"background:#dc2626\"></i>{0} quá hạn</span>", [over]) : '', fmtDate(p.updated)]);
     el.onclick = e => { if (e.target.closest('.more')) projectMenu(p); else openProject(p.id); };
     list.appendChild(el);
   }
-  try { const est = await navigator.storage?.estimate?.(); if (est) $('#storageInfo').textContent = `Đã dùng ${fmtSize(est.usage || 0)} bộ nhớ app · Phiên bản ${APP_VERSION}`; } catch {}
+  try { const est = await navigator.storage?.estimate?.(); if (est) $('#storageInfo').textContent = t("Đã dùng {0} bộ nhớ app · Phiên bản {1}", [fmtSize(est.usage || 0), APP_VERSION]); } catch {}
 }
 function projectMenu(p) {
   menu([
-    { label: 'Mở dự án', icon: 'i-folder', action: () => openProject(p.id) },
-    { label: 'Sửa thông tin dự án', icon: 'i-edit', action: async () => { await openProject(p.id); openProjPanel(S.project); } },
-    { label: 'Sao lưu dự án (.pmk)', icon: 'i-export', action: () => backupProject(p.id) },
+    { label: t("Mở dự án"), icon: 'i-folder', action: () => openProject(p.id) },
+    { label: t("Sửa thông tin dự án"), icon: 'i-edit', action: async () => { await openProject(p.id); openProjPanel(S.project); } },
+    { label: t("Sao lưu dự án (.pmk)"), icon: 'i-export', action: () => backupProject(p.id) },
     '-',
-    { label: 'Xóa dự án', icon: 'i-trash', danger: true, action: () => deleteProjectAsk(p) },
+    { label: t("Xóa dự án"), icon: 'i-trash', danger: true, action: () => deleteProjectAsk(p) },
   ]);
 }
 async function deleteProjectAsk(p) {
-  if (!await confirmBox('Xóa dự án?', `Xóa <b>${esc(p.name)}</b> cùng toàn bộ bản vẽ, điểm ghi nhận và ảnh. Không thể hoàn tác.<br><br>Nên <b>sao lưu (.pmk)</b> trước khi xóa.`, 'Xóa', true)) return false;
-  busy('Đang xóa…'); await deleteProjectData(p.id); unbusy(); toast('Đã xóa dự án'); return true;
+  if (!await confirmBox(t("Xóa dự án?"), t("Xóa <b>{0}</b> cùng toàn bộ bản vẽ, điểm ghi nhận và ảnh. Không thể hoàn tác.<br><br>Nên <b>sao lưu (.pmk)</b> trước khi xóa.", [esc(p.name)]), t("Xóa"), true)) return false;
+  busy(t("Đang xóa…")); await deleteProjectData(p.id); unbusy(); toast(t("Đã xóa dự án")); return true;
 }
 
 /* ======================= PROJECT INFO PANEL ======================= */
@@ -392,12 +390,12 @@ const lastDefaults = () => { try { return JSON.parse(localStorage.getItem('pm.pr
 function openProjPanel(p) {
   ppEditing = p || null;
   const d = p || { ...lastDefaults(), name: '', code: '', loc: '', owner: '', prefix: '', seq: 1 };
-  $('#ppTitle').textContent = p ? 'Thông tin dự án' : 'Dự án mới';
-  $('#ppSave').textContent = p ? 'Lưu thông tin dự án' : 'Tạo dự án';
+  $('#ppTitle').textContent = p ? t("Thông tin dự án") : t("Dự án mới");
+  $('#ppSave').textContent = p ? t("Lưu thông tin dự án") : t("Tạo dự án");
   const v = (id, val) => { $(id).value = val ?? ''; };
   v('#ppName', d.name); v('#ppCode', d.code); v('#ppLoc', d.loc); v('#ppOwner', d.owner); v('#ppTo', d.to);
   v('#ppCompany', d.company); v('#ppAuthor', d.author);
-  v('#ppSigners', d.signers || 'Đại diện đơn vị lập\nĐại diện Tư vấn giám sát\nĐại diện Chủ đầu tư');
+  v('#ppSigners', d.signers || t("Đại diện đơn vị lập\nĐại diện Tư vấn giám sát\nĐại diện Chủ đầu tư"));
   v('#ppPrefix', d.prefix); v('#ppSeq', d.seq || 1);
   ppLogo = d.logo || ''; paintPpLogo();
   $('#projPanel').hidden = false;
@@ -419,11 +417,11 @@ $('#inLogo').addEventListener('change', async e => {
     const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
     ppLogo = c.toDataURL('image/png'); paintPpLogo();
-  } catch { toast('Không đọc được ảnh logo'); }
+  } catch { toast(t("Không đọc được ảnh logo")); }
 });
 $('#ppSave').onclick = async () => {
   const name = $('#ppName').value.trim();
-  if (!name) { toast('Hãy nhập tên dự án'); $('#ppName').focus(); return; }
+  if (!name) { toast(t("Hãy nhập tên dự án")); $('#ppName').focus(); return; }
   const data = { name, code: $('#ppCode').value.trim(), loc: $('#ppLoc').value.trim(), owner: $('#ppOwner').value.trim(),
     to: $('#ppTo').value.trim(), company: $('#ppCompany').value.trim(), author: $('#ppAuthor').value.trim(),
     signers: $('#ppSigners').value, prefix: $('#ppPrefix').value.trim(), seq: Math.max(1, parseInt($('#ppSeq').value, 10) || 1), logo: ppLogo };
@@ -432,21 +430,21 @@ $('#ppSave').onclick = async () => {
   if (ppEditing) {
     Object.assign(ppEditing, data, { updated: now });
     await DB.put('projects', ppEditing);
-    closeLayer('proj'); renderProject(); toast('Đã lưu thông tin dự án');
+    closeLayer('proj'); renderProject(); toast(t("Đã lưu thông tin dự án"));
     if (hasLayer('report')) fillReportProjectHint();
   } else {
     const p = { id: uid(), ...data, created: now, updated: now, rp: {} };
     await DB.put('projects', p); requestPersist();
     closeLayer('proj'); await sleep(80); await openProject(p.id);
-    toast('Đã tạo dự án – thêm bản vẽ PDF để bắt đầu');
+    toast(t("Đã tạo dự án – thêm bản vẽ PDF để bắt đầu"));
   }
 };
 
 /* ======================= PROJECT SCREEN ======================= */
 async function openProject(pid) {
-  busy('Đang mở dự án…');
+  busy(t("Đang mở dự án…"));
   try {
-    const p = await DB.get('projects', pid); if (!p) throw new Error('Không tìm thấy dự án');
+    const p = await DB.get('projects', pid); if (!p) throw new Error(t("Không tìm thấy dự án"));
     S.project = p;
     S.drawings = (await DB.byIdx('drawings', 'projectId', pid)).sort((a, b) => a.created - b.created);
     S.markers = await DB.byIdx('markers', 'projectId', pid);
@@ -455,7 +453,7 @@ async function openProject(pid) {
     showScreen('project');
     if (!hasLayer('project')) pushLayer('project', closeProject);
     renderProject(); renderReports();
-  } catch (e) { console.error(e); modal({ title: 'Lỗi', html: esc(e.message || e) }); }
+  } catch (e) { console.error(e); modal({ title: t("Lỗi"), html: esc(e.message || e) }); }
   finally { unbusy(); }
 }
 function closeProject() { S.project = null; S.drawings = []; S.markers = []; S.photos = new Map(); showScreen('home'); renderHome(); }
@@ -463,14 +461,14 @@ function renderProject() {
   const p = S.project; if (!p) return;
   $('#pjName').textContent = p.name; $('#pjCode').textContent = [p.code, p.loc].filter(Boolean).join(' · ');
   const row = (k, v) => v ? `<div class="r"><span>${k}</span><b>${esc(v)}</b></div>` : '';
-  $('#pjInfo').innerHTML = row('Chủ đầu tư', p.owner) + row('Đơn vị lập', p.company) + row('Người lập', p.author) +
-    row('Số BC tiếp theo', (p.prefix || '') + pad2(p.seq || 1)) +
-    (!(p.owner || p.company || p.author) ? '<div class="r"><span style="min-width:0">Chưa khai báo chủ đầu tư, đơn vị lập, logo…</span></div>' : '') +
-    `<button class="btn ghost edit" id="pjEdit"><svg><use href="#i-edit"/></svg> Sửa thông tin dự án</button>`;
+  $('#pjInfo').innerHTML = row(t("Chủ đầu tư"), p.owner) + row(t("Đơn vị lập"), p.company) + row(t("Người lập"), p.author) +
+    row(t("Số BC tiếp theo"), (p.prefix || '') + pad2(p.seq || 1)) +
+    (!(p.owner || p.company || p.author) ? t("<div class=\"r\"><span style=\"min-width:0\">Chưa khai báo chủ đầu tư, đơn vị lập, logo…</span></div>") : '') +
+    t("<button class=\"btn ghost edit\" id=\"pjEdit\"><svg><use href=\"#i-edit\"/></svg> Sửa thông tin dự án</button>");
   $('#pjEdit').onclick = () => openProjPanel(S.project);
   $('#pjStats').innerHTML = CAT_KEYS.map(c => {
     const ms = S.markers.filter(m => m.cat === c), open = ms.filter(m => !isClosed(m)).length;
-    return `<div class="cat-stat ${ms.length ? '' : 'zero'}">${catIcon(c, ms.length ? (open ? '#e5484d' : '#16a34a') : '#94a3b8')}<div><b>${ms.length}</b> ${esc(CATS[c].name)}<small>${ms.length ? open + ' chưa xong' : '—'}</small></div></div>`;
+    return `<div class="cat-stat ${ms.length ? '' : 'zero'}">${catIcon(c, ms.length ? (open ? '#e5484d' : '#16a34a') : '#94a3b8')}<div><b>${ms.length}</b> ${esc(t(CATS[c].name))}<small>${ms.length ? open + t(" chưa xong") : '—'}</small></div></div>`;
   }).join('');
   $('#pjDwgCount').textContent = S.drawings.length ? `(${S.drawings.length})` : '';
   $('#emptyDwg').hidden = S.drawings.length > 0;
@@ -478,10 +476,7 @@ function renderProject() {
   S.drawings.forEach(d => {
     const mk = S.markers.filter(m => m.drawingId === d.id), open = mk.filter(m => !isClosed(m)).length;
     const el = document.createElement('div'); el.className = 'proj'; el.setAttribute('role', 'button');
-    el.innerHTML = `<div class="th" style="background-image:url('${blobURL('dt' + d.id, d.thumb)}')"></div>
-      <div class="info"><div class="name">${esc(d.name)}</div><div class="meta">${d.pages} trang · ${mk.length} điểm${mk.length ? ` · ${open} chưa xong` : ''}</div>
-      <div class="dots">${CAT_KEYS.map(c => { const n = mk.filter(m => m.cat === c).length; return n ? `<span class="dot">${catIcon(c, '#64748b', 'cat-ic sm')}${n}</span>` : ''; }).join('')}</div></div>
-      <button class="icon-btn dark more" aria-label="Tùy chọn"><svg><use href="#i-more"/></svg></button>`;
+    el.innerHTML = t("<div class=\"th\" style=\"background-image:url('{0}')\"></div>\n      <div class=\"info\"><div class=\"name\">{1}</div><div class=\"meta\">{2} trang · {3} điểm{4}</div>\n      <div class=\"dots\">{5}</div></div>\n      <button class=\"icon-btn dark more\" aria-label=\"Tùy chọn\"><svg><use href=\"#i-more\"/></svg></button>", [blobURL('dt' + d.id, d.thumb), esc(d.name), d.pages, mk.length, mk.length ? t(" · {0} chưa xong", [open]) : '', CAT_KEYS.map(c => { const n = mk.filter(m => m.cat === c).length; return n ? `<span class="dot">${catIcon(c, '#64748b', 'cat-ic sm')}${n}</span>` : ''; }).join('')]);
     el.onclick = e => { if (e.target.closest('.more')) drawingMenu(d); else openDrawing(d.id); };
     list.appendChild(el);
   });
@@ -492,18 +487,16 @@ async function renderReports() {
   $('#rptTitle').hidden = !rs.length; box.innerHTML = '';
   rs.forEach(r => {
     const el = document.createElement('div'); el.className = 'rpt'; el.setAttribute('role', 'button');
-    el.innerHTML = `<svg class="rpt-ic"><use href="#i-doc"/></svg><div class="info"><div class="name">${esc(r.title || r.name)}</div>
-      <div class="meta">${r.no ? 'Số ' + esc(r.no) + ' · ' : ''}${r.count || 0} điểm · ${fmtSize(r.size)} · ${fmtDate(r.created)}</div></div>
-      <button class="btn primary sm-btn share">Chia sẻ</button><button class="icon-btn dark more" aria-label="Tùy chọn"><svg><use href="#i-more"/></svg></button>`;
+    el.innerHTML = t("<svg class=\"rpt-ic\"><use href=\"#i-doc\"/></svg><div class=\"info\"><div class=\"name\">{0}</div>\n      <div class=\"meta\">{1}{2} điểm · {3} · {4}</div></div>\n      <button class=\"btn primary sm-btn share\">Chia sẻ</button><button class=\"icon-btn dark more\" aria-label=\"Tùy chọn\"><svg><use href=\"#i-more\"/></svg></button>", [esc(r.title || r.name), r.no ? t("Số ") + esc(r.no) + ' · ' : '', r.count || 0, fmtSize(r.size), fmtDate(r.created)]);
     const file = () => new File([r.blob], r.name, { type: 'application/pdf' });
     el.querySelector('.share').onclick = e => { e.stopPropagation(); const f = file(); if (canShareFile(f)) shareFile(f); else saveFile(f); };
     el.onclick = e => {
       if (e.target.closest('.share')) return;
       menu([
-        { label: 'Chia sẻ sang ứng dụng khác', icon: 'i-export', action: () => { const f = file(); if (canShareFile(f)) shareFile(f); else saveFile(f); } },
-        ...(isIOS() && isStandalone() ? [] : [{ label: 'Lưu về máy', icon: 'i-doc', action: () => saveFile(file()) }]),
+        { label: t("Chia sẻ sang ứng dụng khác"), icon: 'i-export', action: () => { const f = file(); if (canShareFile(f)) shareFile(f); else saveFile(f); } },
+        ...(isIOS() && isStandalone() ? [] : [{ label: t("Lưu về máy"), icon: 'i-doc', action: () => saveFile(file()) }]),
         '-',
-        { label: 'Xóa báo cáo này', icon: 'i-trash', danger: true, action: async () => { if (await confirmBox('Xóa báo cáo?', esc(r.name), 'Xóa', true)) { await DB.del('reports', r.id); renderReports(); } } },
+        { label: t("Xóa báo cáo này"), icon: 'i-trash', danger: true, action: async () => { if (await confirmBox(t("Xóa báo cáo?"), esc(r.name), t("Xóa"), true)) { await DB.del('reports', r.id); renderReports(); } } },
       ]);
     };
     box.appendChild(el);
@@ -511,19 +504,19 @@ async function renderReports() {
 }
 function drawingMenu(d) {
   menu([
-    { label: 'Mở bản vẽ', icon: 'i-doc', action: () => openDrawing(d.id) },
-    { label: 'Đổi tên bản vẽ', icon: 'i-edit', action: () => renameDrawing(d) },
+    { label: t("Mở bản vẽ"), icon: 'i-doc', action: () => openDrawing(d.id) },
+    { label: t("Đổi tên bản vẽ"), icon: 'i-edit', action: () => renameDrawing(d) },
     '-',
-    { label: 'Xóa bản vẽ', icon: 'i-trash', danger: true, action: async () => {
+    { label: t("Xóa bản vẽ"), icon: 'i-trash', danger: true, action: async () => {
       const n = S.markers.filter(m => m.drawingId === d.id).length;
-      if (!await confirmBox('Xóa bản vẽ?', `Xóa <b>${esc(d.name)}</b> cùng ${n} điểm ghi nhận và ảnh kèm theo.`, 'Xóa', true)) return;
-      busy('Đang xóa…'); await deleteDrawingData(d.id); unbusy();
+      if (!await confirmBox(t("Xóa bản vẽ?"), t("Xóa <b>{0}</b> cùng {1} điểm ghi nhận và ảnh kèm theo.", [esc(d.name), n]), t("Xóa"), true)) return;
+      busy(t("Đang xóa…")); await deleteDrawingData(d.id); unbusy();
       S.drawings = S.drawings.filter(x => x.id !== d.id); S.markers = S.markers.filter(m => m.drawingId !== d.id);
-      touchProject(); renderProject(); toast('Đã xóa bản vẽ'); } },
+      touchProject(); renderProject(); toast(t("Đã xóa bản vẽ")); } },
   ]);
 }
 async function renameDrawing(d) {
-  const n = await promptBox('Đổi tên bản vẽ', d.name); if (!n) return;
+  const n = await promptBox(t("Đổi tên bản vẽ"), d.name); if (!n) return;
   d.name = n; d.updated = Date.now(); await DB.put('drawings', d);
   if (S.drawing?.id === d.id) $('#vTitle').textContent = n;
   renderProject();
@@ -532,14 +525,14 @@ $('#pjBack').onclick = () => closeLayer('project');
 $('#pjAddDwg').onclick = () => $('#inPdf').click();
 $('#pjReport').onclick = () => openReport();
 $('#pjMenu').onclick = () => menu([
-  { label: 'Sửa thông tin dự án', icon: 'i-edit', action: () => openProjPanel(S.project) },
-  { label: 'Lập báo cáo PDF', icon: 'i-export', action: () => openReport() },
-  { label: 'Xuất danh sách (Excel/CSV)', icon: 'i-list', action: exportCSV },
-  { label: 'Tải ảnh hiện trường', icon: 'i-dl', action: () => photosDialog(false) },
-  { label: 'Sao lưu dự án (.pmk)', icon: 'i-doc', action: () => backupProject(S.project.id) },
-  { label: 'Đánh số lại các điểm', icon: 'i-pin', action: renumber },
+  { label: t("Sửa thông tin dự án"), icon: 'i-edit', action: () => openProjPanel(S.project) },
+  { label: t("Lập báo cáo PDF"), icon: 'i-export', action: () => openReport() },
+  { label: t("Xuất danh sách (Excel/CSV)"), icon: 'i-list', action: exportCSV },
+  { label: t("Tải ảnh hiện trường"), icon: 'i-dl', action: () => photosDialog(false) },
+  { label: t("Sao lưu dự án (.pmk)"), icon: 'i-doc', action: () => backupProject(S.project.id) },
+  { label: t("Đánh số lại các điểm"), icon: 'i-pin', action: renumber },
   '-',
-  { label: 'Xóa dự án', icon: 'i-trash', danger: true, action: async () => { if (await deleteProjectAsk(S.project)) closeLayer('project'); } },
+  { label: t("Xóa dự án"), icon: 'i-trash', danger: true, action: async () => { if (await deleteProjectAsk(S.project)) closeLayer('project'); } },
 ]);
 
 async function renderPdfThumb(doc) {
@@ -555,7 +548,7 @@ async function addDrawings(files) {
   if (!S.project) return;
   let last = null;
   for (const [i, file] of files.entries()) {
-    busy(`Đang thêm bản vẽ ${i + 1}/${files.length}…`);
+    busy(t("Đang thêm bản vẽ {0}/{1}…", [i + 1, files.length]));
     try {
       const buf = await file.arrayBuffer();
       const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
@@ -567,7 +560,7 @@ async function addDrawings(files) {
       doc.destroy();
     } catch (err) {
       console.error(err);
-      await modal({ title: 'Không mở được PDF', html: `<b>${esc(file.name)}</b><br>` + esc(err?.name === 'PasswordException' ? 'File PDF có mật khẩu – hãy gỡ mật khẩu trước.' : (err?.message || err)) });
+      await modal({ title: t("Không mở được PDF"), html: `<b>${esc(file.name)}</b><br>` + esc(err?.name === 'PasswordException' ? t("File PDF có mật khẩu – hãy gỡ mật khẩu trước.") : (err?.message || err)) });
     }
   }
   unbusy(); touchProject(); renderProject(); requestPersist();
@@ -587,10 +580,10 @@ const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
 const dwgMarkers = () => S.markers.filter(m => m.drawingId === S.drawing?.id);
 
 async function openDrawing(did, page) {
-  busy('Đang tải bản vẽ…');
+  busy(t("Đang tải bản vẽ…"));
   try {
     const d = S.drawings.find(x => x.id === did); const rec = await DB.get('pdfs', did);
-    if (!d || !rec) throw new Error('Không tìm thấy dữ liệu bản vẽ');
+    if (!d || !rec) throw new Error(t("Không tìm thấy dữ liệu bản vẽ"));
     if (S.doc && S.drawing?.id !== did) { try { S.doc.destroy(); } catch {} S.doc = null; }
     S.drawing = d; S.pdfBlob = rec.blob;
     if (!S.doc) S.doc = await pdfjsLib.getDocument({ data: new Uint8Array(await rec.blob.arrayBuffer()) }).promise;
@@ -601,7 +594,7 @@ async function openDrawing(did, page) {
     if (!hasLayer('viewer')) pushLayer('viewer', closeViewer);
     setAddMode(false); updateCounts(); updateFilterUI();
     await gotoPage(clamp(page || d.lastPage || 1, 1, S.doc.numPages));
-  } catch (err) { console.error(err); modal({ title: 'Lỗi', html: esc(err.message || err) }); }
+  } catch (err) { console.error(err); modal({ title: t("Lỗi"), html: esc(err.message || err) }); }
   finally { unbusy(); }
 }
 function closeViewer() {
@@ -753,7 +746,7 @@ stage.addEventListener('pointerdown', e => {
   if (ptrs.size === 1) {
     if (dk && dk !== 'point') {
       const bp = screenToBase(p);
-      if (!insideBase(bp)) { toast('Hãy bắt đầu kéo trong trang bản vẽ'); ptrs.delete(e.pointerId); return; }
+      if (!insideBase(bp)) { toast(t("Hãy bắt đầu kéo trong trang bản vẽ")); ptrs.delete(e.pointerId); return; }
       gest = { type: 'draw', a: bp, b: bp, p0: p };
       drawDraft(dk, bp, bp);
     } else startPan(p);
@@ -808,7 +801,7 @@ function finishDraw(g, p) {
   const kind = drawKind(), dist = Math.hypot(g.b.x - g.a.x, g.b.y - g.a.y) * S.view.s;
   let a = g.a, b = g.b;
   if (dist < 14) {
-    if (kind === 'arrow') { toast('Kéo từ chỗ đặt ký hiệu đến vị trí cần chỉ'); return; }
+    if (kind === 'arrow') { toast(t("Kéo từ chỗ đặt ký hiệu đến vị trí cần chỉ")); return; }
     const h = 40 / S.view.s; a = clampBase({ x: g.a.x - h, y: g.a.y - h * 0.7 }); b = clampBase({ x: g.a.x + h, y: g.a.y + h * 0.7 });
   }
   // arrow: drag start = tail (symbol) → end = tip (target). Stored as x,y = tip; x2,y2 = tail.
@@ -816,22 +809,22 @@ function finishDraw(g, p) {
   if (S.moveId) {
     const m = S.markers.find(x => x.id === S.moveId);
     Object.assign(m, { x: px, y: py, x2: qx, y2: qy, page: S.pageNum });
-    saveMarker(m); setMoveMode(null); renderMarks(); openSheet(m); toast(`Đã vẽ lại ${markCode(m)}`);
+    saveMarker(m); setMoveMode(null); renderMarks(); openSheet(m); toast(t("Đã vẽ lại {0}", [markCode(m)]));
   } else createMark({ kind, x: px, y: py, x2: qx, y2: qy });
 }
 function handleTap(p) {
   const hit = document.elementFromPoint(p.cx, p.cy)?.closest?.('.mk');
   const bp = screenToBase(p);
   if (S.moveId) {
-    if (!insideBase(bp)) { toast('Hãy chạm vào trong trang bản vẽ'); return; }
+    if (!insideBase(bp)) { toast(t("Hãy chạm vào trong trang bản vẽ")); return; }
     const m = S.markers.find(x => x.id === S.moveId);
     const [px, py] = toPdf(bp);
     Object.assign(m, { x: px, y: py, page: S.pageNum });
-    saveMarker(m); setMoveMode(null); renderMarks(); openSheet(m); toast(`Đã chuyển ${markCode(m)} tới vị trí mới`);
+    saveMarker(m); setMoveMode(null); renderMarks(); openSheet(m); toast(t("Đã chuyển {0} tới vị trí mới", [markCode(m)]));
     return;
   }
   if (S.addMode) {
-    if (!insideBase(bp)) { toast('Hãy chạm vào trong trang bản vẽ'); return; }
+    if (!insideBase(bp)) { toast(t("Hãy chạm vào trong trang bản vẽ")); return; }
     const [px, py] = toPdf(bp); createMark({ kind: 'point', x: px, y: py }); return;
   }
   if (hit) { const m = S.markers.find(x => x.id === hit.dataset.id); if (m) openSheet(m); return; }
@@ -931,7 +924,7 @@ async function createMark(geom) {
     status: flowOf(cat)[0], photoIds: [], created: now, updated: now };
   S.markers.push(m);
   setAddMode(false);
-  if (filterActive() && !passFilter(m)) { S.filter = { cats: [], st: 'all', owner: '', over: false }; updateFilterUI(); toast('Đã bỏ bộ lọc để hiện điểm mới'); }
+  if (filterActive() && !passFilter(m)) { S.filter = { cats: [], st: 'all', owner: '', over: false }; updateFilterUI(); toast(t("Đã bỏ bộ lọc để hiện điểm mới")); }
   await saveMarker(m);
   renderMarks(); updateCounts(); openSheet(m);
 }
@@ -956,19 +949,19 @@ function setHint(html, actions = []) {
   actions.forEach(a => { const b = document.createElement('button'); b.textContent = a.label; b.onclick = a.action; h.appendChild(b); });
   h.hidden = false;
 }
-const KIND_HINT = { point: 'Chạm vào vị trí cần ghi nhận', rect: 'Kéo 1 ngón để khoanh vùng (2 ngón để zoom)', cloud: 'Kéo 1 ngón để khoanh vùng mây (2 ngón để zoom)', arrow: 'Kéo từ chỗ đặt ký hiệu đến vị trí cần chỉ' };
+const KIND_HINT = { point: t("Chạm vào vị trí cần ghi nhận"), rect: t("Kéo 1 ngón để khoanh vùng (2 ngón để zoom)"), cloud: t("Kéo 1 ngón để khoanh vùng mây (2 ngón để zoom)"), arrow: t("Kéo từ chỗ đặt ký hiệu đến vị trí cần chỉ") };
 function buildToolbar() {
-  $('#tbCats').innerHTML = CAT_KEYS.map(c => `<button class="tb-chip ${S.tool.cat === c ? 'on' : ''}" data-c="${c}">${catIcon(c, S.tool.cat === c ? '#0f172a' : '#64748b', '')}${esc(CATS[c].name)}</button>`).join('');
-  $('#tbKinds').innerHTML = Object.entries(KINDS).map(([k, l]) => `<button class="tb-chip ${S.tool.kind === k ? 'on' : ''}" data-k="${k}"><svg><use href="#k-${k}"/></svg>${l}</button>`).join('');
+  $('#tbCats').innerHTML = CAT_KEYS.map(c => `<button class="tb-chip ${S.tool.cat === c ? 'on' : ''}" data-c="${c}">${catIcon(c, S.tool.cat === c ? '#0f172a' : '#64748b', '')}${esc(t(CATS[c].name))}</button>`).join('');
+  $('#tbKinds').innerHTML = Object.entries(KINDS).map(([k, l]) => `<button class="tb-chip ${S.tool.kind === k ? 'on' : ''}" data-k="${k}"><svg><use href="#k-${k}"/></svg>${t(l)}</button>`).join('');
   $('#tbCats').querySelectorAll('button').forEach(b => b.onclick = () => { S.tool.cat = b.dataset.c; saveTool(); buildToolbar(); });
   $('#tbKinds').querySelectorAll('button').forEach(b => b.onclick = () => { S.tool.kind = b.dataset.k; saveTool(); buildToolbar(); });
-  if (S.addMode) setHint(`<b>${esc(CATS[S.tool.cat].name)}</b> · ${KIND_HINT[S.tool.kind]}`, [{ label: 'Hủy', action: () => setAddMode(false) }]);
+  if (S.addMode) setHint(`<b>${esc(t(CATS[S.tool.cat].name))}</b> · ${KIND_HINT[S.tool.kind]}`, [{ label: t("Hủy"), action: () => setAddMode(false) }]);
 }
 function saveTool() { try { localStorage.setItem('pm.tool', JSON.stringify(S.tool)); } catch {} }
 function setAddMode(on) {
   S.addMode = on;
   $('#btnAdd').classList.toggle('on', on);
-  $('#btnAdd span').textContent = on ? 'Hủy' : 'Đánh dấu';
+  $('#btnAdd span').textContent = on ? t("Hủy") : t("Đánh dấu");
   stage.classList.toggle('adding', on);
   $('#toolbar').hidden = !on;
   if (on) { setMoveMode(null); buildToolbar(); requestAnimationFrame(() => { if (S.page) { layoutKeepView(); } }); }
@@ -980,8 +973,8 @@ function setMoveMode(id) {
   stage.classList.toggle('adding', !!id || S.addMode);
   if (id) {
     const m = S.markers.find(x => x.id === id);
-    const txt = m.kind === 'point' ? `Chạm vị trí mới cho <b>${esc(markCode(m))}</b>` : `${m.kind === 'arrow' ? 'Kéo lại mũi tên' : 'Kéo lại vùng'} cho <b>${esc(markCode(m))}</b>`;
-    setHint(txt + ' (có thể đổi trang)', [{ label: 'Hủy', action: () => { setMoveMode(null); openSheet(m); } }]);
+    const txt = m.kind === 'point' ? t("Chạm vị trí mới cho <b>{0}</b>", [esc(markCode(m))]) : `${m.kind === 'arrow' ? t("Kéo lại mũi tên") : t("Kéo lại vùng")} cho <b>${esc(markCode(m))}</b>`;
+    setHint(txt + t(" (có thể đổi trang)"), [{ label: t("Hủy"), action: () => { setMoveMode(null); openSheet(m); } }]);
   } else if (!S.addMode) setHint(null);
 }
 
@@ -991,23 +984,23 @@ function paintSheet() {
   const m = S.cur; if (!m) return;
   const col = stOf(m).color;
   $('#shCode').textContent = markCode(m); $('#shCode').style.background = col;
-  $('#shCats').innerHTML = CAT_KEYS.map(c => `<button class="cat-chip ${m.cat === c ? 'on' : ''}" data-c="${c}">${catIcon(c, m.cat === c ? col : '#94a3b8', '')}${esc(CATS[c].name)}</button>`).join('');
+  $('#shCats').innerHTML = CAT_KEYS.map(c => `<button class="cat-chip ${m.cat === c ? 'on' : ''}" data-c="${c}">${catIcon(c, m.cat === c ? col : '#94a3b8', '')}${esc(t(CATS[c].name))}</button>`).join('');
   $('#shCats').querySelectorAll('button').forEach(b => b.onclick = () => changeCat(b.dataset.c));
   const row = $('#shStatus'); row.innerHTML = '';
   flowOf(m.cat).forEach(k => {
     const s = ST[k], on = m.status === k, b = document.createElement('button');
     b.className = 'st-chip' + (on ? ' on' : ''); b.style.background = on ? s.color : '';
-    b.innerHTML = `<i style="background:${s.color}"></i>${s.label}`;
+    b.innerHTML = `<i style="background:${s.color}"></i>${t(s.label)}`;
     b.onclick = () => { m.status = k; paintSheet(); saveMarker(m); renderMarks(); };
     row.appendChild(b);
   });
-  $('#shMove span').textContent = m.kind === 'point' ? 'Di chuyển' : 'Vẽ lại';
+  $('#shMove span').textContent = m.kind === 'point' ? t("Di chuyển") : t("Vẽ lại");
   updateNav();
-  $('#shMeta').textContent = `${CATS[m.cat].name} · ${KINDS[m.kind]} · Trang ${m.page} · Tạo ${fmtDate(m.created)} · Sửa ${fmtDate(m.updated)}`;
+  $('#shMeta').textContent = t("{0} · {1} · Trang {2} · Tạo {3} · Sửa {4}", [t(CATS[m.cat].name), t(KINDS[m.kind]), m.page, fmtDate(m.created), fmtDate(m.updated)]);
 }
 function renderExtra() {
   const m = S.cur, box = $('#shExtra');
-  box.innerHTML = CATS[m.cat].fields.map(([k, l]) => `<label class="fld extra-fld"><span>${esc(l)}</span><textarea data-k="${k}" rows="2">${esc(m.extra?.[k] || '')}</textarea></label>`).join('');
+  box.innerHTML = CATS[m.cat].fields.map(([k, l]) => `<label class="fld extra-fld"><span>${esc(t(l))}</span><textarea data-k="${k}" rows="2">${esc(m.extra?.[k] || '')}</textarea></label>`).join('');
   box.querySelectorAll('textarea').forEach(t => t.addEventListener('input', () => { clearTimeout(sheetTimer); sheetTimer = setTimeout(flushSheet, 500); }));
 }
 async function changeCat(c) {
@@ -1016,13 +1009,13 @@ async function changeCat(c) {
   m.status = mapStatus(m.status, c); m.cat = c; m.n = nextNumber(c);
   S.tool.cat = c; saveTool();
   paintSheet(); renderExtra(); await saveMarker(m); renderMarks();
-  toast(`Đổi thành ${CATS[c].name} – mã mới ${markCode(m)}`);
+  toast(t("Đổi thành {0} – mã mới {1}", [t(CATS[c].name), markCode(m)]));
 }
 function renderSheetPhotos() {
   const m = S.cur, g = $('#shPhotos'); g.innerHTML = '';
   $('#shPhotoCount').textContent = m.photoIds.length ? `(${m.photoIds.length})` : '';
   $('#shPhotoDl').hidden = !m.photoIds.length;
-  if (!m.photoIds.length) { g.innerHTML = '<div class="none">Chưa có ảnh. Chụp hoặc chọn ảnh hiện trường tại vị trí này.</div>'; return; }
+  if (!m.photoIds.length) { g.innerHTML = t("<div class=\"none\">Chưa có ảnh. Chụp hoặc chọn ảnh hiện trường tại vị trí này.</div>"); return; }
   m.photoIds.forEach((pid, i) => {
     const ph = S.photos.get(pid); if (!ph) return;
     const b = document.createElement('button');
@@ -1033,7 +1026,7 @@ function renderSheetPhotos() {
 }
 function fillOwnerList() {
   const names = new Set(S.markers.map(m => (m.owner || '').trim()).filter(Boolean));
-  ['Nhà thầu', 'Tư vấn giám sát', 'Tư vấn thiết kế', 'Chủ đầu tư'].forEach(n => names.add(n));
+  [t("Nhà thầu"), t("Tư vấn giám sát"), t("Tư vấn thiết kế"), t("Chủ đầu tư")].forEach(n => names.add(n));
   $('#ownerList').innerHTML = [...names].map(n => `<option value="${esc(n)}">`).join('');
 }
 function openSheet(m, opts = {}) {
@@ -1056,12 +1049,12 @@ function openSheet(m, opts = {}) {
 function navList() { return sortMarks(dwgMarkers().filter(m => passFilter(m) || m.id === S.cur?.id)); }
 function updateNav() {
   const l = navList(), i = l.findIndex(m => m.id === S.cur?.id);
-  $('#shPos').textContent = `${i + 1} / ${l.length}${filterActive() ? ' · đang lọc' : ''}`;
+  $('#shPos').textContent = `${i + 1} / ${l.length}${filterActive() ? t(" · đang lọc") : ''}`;
   $('#shPrev').disabled = i <= 0; $('#shNext').disabled = i < 0 || i >= l.length - 1;
 }
 function stepMark(d) {
   const l = navList(), i = l.findIndex(m => m.id === S.cur?.id), n = l[i + d];
-  if (!n) { toast(d > 0 ? 'Đã tới điểm cuối' : 'Đã tới điểm đầu'); return; }
+  if (!n) { toast(d > 0 ? t("Đã tới điểm cuối") : t("Đã tới điểm đầu")); return; }
   flushSheet(); document.activeElement?.blur?.();
   openSheet(n, { center: true });
   setTimeout(() => mkLayer.querySelector(`[data-id="${n.id}"]`)?.classList.add('flash'), 320);
@@ -1085,7 +1078,7 @@ document.addEventListener('keydown', e => {
 function setCompact(on, silent) {
   sheet.classList.toggle('compact', on);
   try { localStorage.setItem('pm.compact', on ? '1' : '0'); } catch {}
-  if (!silent) toast(on ? 'Đã thu gọn thẻ – chạm thanh ngang để mở rộng' : 'Đã mở rộng thẻ');
+  if (!silent) toast(on ? t("Đã thu gọn thẻ – chạm thanh ngang để mở rộng") : t("Đã mở rộng thẻ"));
   if (S.cur) setTimeout(() => centerMarker(S.cur), 240);
 }
 try { if (localStorage.getItem('pm.compact') === '1') sheet.classList.add('compact'); } catch {}
@@ -1135,28 +1128,28 @@ $('#shDone').onclick = () => closeLayer('sheet');
 $('#shMove').onclick = () => { const m = S.cur; closeLayer('sheet'); setTimeout(() => setMoveMode(m.id), 50); };
 $('#shDelete').onclick = async () => {
   const m = S.cur; if (!m) return;
-  if (!await confirmBox(`Xóa ${markCode(m)}?`, `Điểm ghi nhận và <b>${m.photoIds.length}</b> ảnh kèm theo sẽ bị xóa.`, 'Xóa', true)) return;
+  if (!await confirmBox(t("Xóa {0}?", [markCode(m)]), t("Điểm ghi nhận và <b>{0}</b> ảnh kèm theo sẽ bị xóa.", [m.photoIds.length]), t("Xóa"), true)) return;
   S.markers = S.markers.filter(x => x.id !== m.id);
   for (const pid of m.photoIds) { await DB.del('photos', pid); S.photos.delete(pid); }
   await DB.del('markers', m.id);
-  touchProject(); updateCounts(); S.cur = null; closeLayer('sheet'); renderMarks(); toast(`Đã xóa ${markCode(m)}`);
+  touchProject(); updateCounts(); S.cur = null; closeLayer('sheet'); renderMarks(); toast(t("Đã xóa {0}", [markCode(m)]));
 };
 $('#btnCamera').onclick = () => $('#inCamera').click();
 $('#btnGallery').onclick = () => $('#inGallery').click();
 async function addPhotos(files) {
   const m = S.cur; if (!m || !files.length) return;
-  busy(`Đang lưu ${files.length} ảnh…`);
+  busy(t("Đang lưu {0} ảnh…", [files.length]));
   try {
     let i = 0;
     for (const f of files) {
-      i++; $('#busyText').textContent = `Đang lưu ảnh ${i}/${files.length}…`;
+      i++; $('#busyText').textContent = t("Đang lưu ảnh {0}/{1}…", [i, files.length]);
       const big = await compressImage(f, 1920, 0.82), th = await compressImage(big.blob, 360, 0.72);
       const ph = { id: uid(), projectId: S.project.id, markerId: m.id, blob: big.blob, thumb: th.blob, w: big.w, h: big.h, name: f.name || '', created: f.lastModified || Date.now() };
       await DB.put('photos', ph); S.photos.set(ph.id, ph); m.photoIds.push(ph.id);
     }
     await saveMarker(m); renderSheetPhotos(); renderMarks();
-    toast(`Đã thêm ${files.length} ảnh vào ${markCode(m)}`);
-  } catch (e) { console.error(e); modal({ title: 'Không lưu được ảnh', html: esc(e.message || e) }); }
+    toast(t("Đã thêm {0} ảnh vào {1}", [files.length, markCode(m)]));
+  } catch (e) { console.error(e); modal({ title: t("Không lưu được ảnh"), html: esc(e.message || e) }); }
   finally { unbusy(); }
 }
 ['#inCamera', '#inGallery'].forEach(sel => $(sel).addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; addPhotos(fs); }));
@@ -1201,61 +1194,57 @@ async function buildZip(entries, onStep) {
 }
 /** Offer a set of photos: share the images directly (→ “Lưu hình ảnh”, Zalo…) or one ZIP sorted into a folder per mark. */
 async function deliverPhotos(items, label, zipBase) {
-  if (!items.length) { toast('Không có ảnh nào để tải'); return; }
+  if (!items.length) { toast(t("Không có ảnh nào để tải")); return; }
   const files = items.map(it => new File([it.ph.blob], it.name, { type: 'image/jpeg' }));
   const total = items.reduce((a, it) => a + it.ph.blob.size, 0), marks = new Set(items.map(it => it.m.id)).size;
   let canShare = false; try { canShare = files.length <= 40 && !!navigator.canShare?.({ files }); } catch {}
   const ios = isIOS();
-  const btns = [{ label: 'Đóng', value: 'close' }, { label: files.length > 1 ? 'Tải file ZIP' : 'Lưu về máy', value: 'zip', cls: canShare ? '' : 'primary' }];
-  if (canShare) btns.push({ label: ios ? 'Chia sẻ / Lưu vào Ảnh' : 'Chia sẻ ảnh…', value: 'share', cls: 'primary' });
+  const btns = [{ label: t("Đóng"), value: 'close' }, { label: files.length > 1 ? t("Tải file ZIP") : t("Lưu về máy"), value: 'zip', cls: canShare ? '' : 'primary' }];
+  if (canShare) btns.push({ label: ios ? t("Chia sẻ / Lưu vào Ảnh") : t("Chia sẻ ảnh…"), value: 'share', cls: 'primary' });
   const thumbs = items.slice(0, 8).map(it => `<span style="background-image:url('${blobURL('t' + it.ph.id, it.ph.thumb)}')"></span>`).join('');
   const choice = await modal({
-    title: 'Tải ảnh hiện trường', cls: 'deliver',
-    html: `<div class="dl-photos">${thumbs}${items.length > 8 ? `<b>+${items.length - 8}</b>` : ''}</div>
-      <p class="dl-tip"><b>${items.length} ảnh</b> của ${marks} điểm · ${fmtSize(total)} · ${esc(label)}</p>
-      ${canShare ? `<p class="dl-tip"><b>${ios ? 'Chia sẻ / Lưu vào Ảnh' : 'Chia sẻ ảnh'}</b>: gửi thẳng sang Zalo, Email, Drive…${ios ? ' hoặc chọn <b>“Lưu hình ảnh”</b> để lưu vào thư viện Ảnh.' : ''}</p>` : ''}
-      ${files.length > 1 ? `<p class="dl-tip"><b>File ZIP</b>: tất cả ảnh trong một file, chia thư mục theo mã điểm, kèm danh sách ảnh (mở bằng Excel).</p>` : ''}
-      <p class="dl-tip" style="font-size:12.5px">Ảnh là bản đã lưu trong app (cạnh dài tối đa 1920 px). Ảnh gốc vẫn nằm trong thư viện ảnh của máy chụp.</p>`,
+    title: t("Tải ảnh hiện trường"), cls: 'deliver',
+    html: t("<div class=\"dl-photos\">{0}{1}</div>\n      <p class=\"dl-tip\"><b>{2} ảnh</b> của {3} điểm · {4} · {5}</p>\n      {6}\n      {7}\n      <p class=\"dl-tip\" style=\"font-size:12.5px\">Ảnh là bản đã lưu trong app (cạnh dài tối đa 1920 px). Ảnh gốc vẫn nằm trong thư viện ảnh của máy chụp.</p>", [thumbs, items.length > 8 ? `<b>+${items.length - 8}</b>` : '', items.length, marks, fmtSize(total), esc(label), canShare ? t("<p class=\"dl-tip\"><b>{0}</b>: gửi thẳng sang Zalo, Email, Drive…{1}</p>", [ios ? t("Chia sẻ / Lưu vào Ảnh") : t("Chia sẻ ảnh"), ios ? t(" hoặc chọn <b>“Lưu hình ảnh”</b> để lưu vào thư viện Ảnh.") : '']) : '', files.length > 1 ? t("<p class=\"dl-tip\"><b>File ZIP</b>: tất cả ảnh trong một file, chia thư mục theo mã điểm, kèm danh sách ảnh (mở bằng Excel).</p>") : '']),
     buttons: btns.map(b => ({ ...b, value: () => {
-      if (b.value === 'share') navigator.share({ files }).catch(e => { if (e.name !== 'AbortError') toast('Không chia sẻ được – hãy dùng nút tải'); });
+      if (b.value === 'share') navigator.share({ files }).catch(e => { if (e.name !== 'AbortError') toast(t("Không chia sẻ được – hãy dùng nút tải")); });
       return b.value; } })),
   });
   if (choice !== 'zip') return;
   if (files.length === 1) { await saveFile(files[0]); return; }
-  busy('Đang đóng gói ảnh…');
+  busy(t("Đang đóng gói ảnh…"));
   try {
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const folder = m => asciiName(`${markCode(m)}_${(m.title || CATS[m.cat].name).slice(0, 40)}`);
-    const csv = [['Mã', 'Loại', 'Tiêu đề', 'Bản vẽ', 'Trang', 'Trạng thái', 'Tên file', 'Thời điểm'].map(q).join(',')];
-    items.forEach(it => csv.push([markCode(it.m), CATS[it.m.cat].name, it.m.title, dwgName(it.m.drawingId), it.m.page, stOf(it.m).label, `${folder(it.m)}/${it.name}`, fmtDate(it.ph.created)].map(q).join(',')));
+    const folder = m => asciiName(`${markCode(m)}_${(m.title || t(CATS[m.cat].name)).slice(0, 40)}`);
+    const csv = [[t("Mã"), t("Loại"), t("Tiêu đề"), t("Bản vẽ"), t("Trang"), t("Trạng thái"), t("Tên file"), t("Thời điểm")].map(q).join(',')];
+    items.forEach(it => csv.push([markCode(it.m), t(CATS[it.m.cat].name), it.m.title, dwgName(it.m.drawingId), it.m.page, t(stOf(it.m).label), `${folder(it.m)}/${it.name}`, fmtDate(it.ph.created)].map(q).join(',')));
     const entries = [{ name: 'danh-sach-anh.csv', blob: new Blob(['\ufeff' + csv.join('\r\n')], { type: 'text/csv' }) },
       ...items.map(it => ({ name: `${folder(it.m)}/${it.name}`, blob: it.ph.blob }))];
-    const zip = await buildZip(entries, (k, n) => { $('#busyText').textContent = `Đang đóng gói ảnh ${k}/${n}…`; });
+    const zip = await buildZip(entries, (k, n) => { $('#busyText').textContent = t("Đang đóng gói ảnh {0}/{1}…", [k, n]); });
     unbusy();
-    await deliverFile(zip, `${zipBase}_${stamp(Date.now()).slice(0, 8)}.zip`, 'File ảnh đã sẵn sàng',
-      'Giải nén để xem ảnh theo từng thư mục mã điểm; file <b>danh-sach-anh.csv</b> liệt kê ảnh nào thuộc điểm nào.');
-  } catch (e) { unbusy(); console.error(e); modal({ title: 'Đóng gói ảnh lỗi', html: esc(e.message || e) }); }
+    await deliverFile(zip, `${zipBase}_${stamp(Date.now()).slice(0, 8)}.zip`, t("File ảnh đã sẵn sàng"),
+      t("Giải nén để xem ảnh theo từng thư mục mã điểm; file <b>danh-sach-anh.csv</b> liệt kê ảnh nào thuộc điểm nào."));
+  } catch (e) { unbusy(); console.error(e); modal({ title: t("Đóng gói ảnh lỗi"), html: esc(e.message || e) }); }
 }
 async function photosDialog(fromViewer) {
   const projMs = S.markers.filter(m => m.photoIds.length);
-  if (!projMs.length) { toast('Dự án chưa có ảnh hiện trường nào'); return; }
+  if (!projMs.length) { toast(t("Dự án chưa có ảnh hiện trường nào")); return; }
   const opts = [];
   if (fromViewer && S.drawing) {
     const dm = dwgMarkers().filter(m => m.photoIds.length);
-    if (filterActive()) opts.push({ k: 'filter', l: `Bản vẽ này – theo bộ lọc (${esc(filterSummary())})`, ms: dm.filter(passFilter) });
-    opts.push({ k: 'dwg', l: `Bản vẽ “${esc(S.drawing.name)}”`, ms: dm });
+    if (filterActive()) opts.push({ k: 'filter', l: t("Bản vẽ này – theo bộ lọc ({0})", [esc(filterSummary())]), ms: dm.filter(passFilter) });
+    opts.push({ k: 'dwg', l: t("Bản vẽ “{0}”", [esc(S.drawing.name)]), ms: dm });
   }
-  opts.push({ k: 'proj', l: `Toàn bộ dự án (${S.drawings.length} bản vẽ)`, ms: projMs });
+  opts.push({ k: 'proj', l: t("Toàn bộ dự án ({0} bản vẽ)", [S.drawings.length]), ms: projMs });
   const n = ms => ms.reduce((a, m) => a + m.photoIds.length, 0);
   const pick = await modal({
-    title: 'Tải ảnh hiện trường',
-    html: opts.map((o, i) => `<label class="ck"><input type="radio" name="pScope" value="${i}" ${i === 0 ? 'checked' : ''}><span>${o.l}<br><small style="color:#64748b">${n(o.ms)} ảnh</small></span></label>`).join(''),
-    buttons: [{ label: 'Hủy', value: null }, { label: 'Tiếp tục', cls: 'primary', value: () => +document.querySelector('input[name="pScope"]:checked').value }],
+    title: t("Tải ảnh hiện trường"),
+    html: opts.map((o, i) => t("<label class=\"ck\"><input type=\"radio\" name=\"pScope\" value=\"{0}\" {1}><span>{2}<br><small style=\"color:#64748b\">{3} ảnh</small></span></label>", [i, i === 0 ? 'checked' : '', o.l, n(o.ms)])).join(''),
+    buttons: [{ label: t("Hủy"), value: null }, { label: t("Tiếp tục"), cls: 'primary', value: () => +document.querySelector('input[name="pScope"]:checked').value }],
   });
   if (pick == null) return;
   const o = opts[pick];
   const base = asciiName(`AnhHienTruong_${S.project.code || S.project.name}${o.k !== 'proj' ? '_' + S.drawing.name : ''}`);
-  deliverPhotos(photoItems(o.ms), o.k === 'proj' ? 'toàn dự án' : 'bản vẽ ' + S.drawing.name, base);
+  deliverPhotos(photoItems(o.ms), o.k === 'proj' ? t("toàn dự án") : t("bản vẽ ") + S.drawing.name, base);
 }
 $('#shPhotoDl').onclick = () => { const m = S.cur; if (m) deliverPhotos(photoItems([m]), markCode(m) + (m.title ? ' – ' + m.title : ''), asciiName(`Anh_${markCode(m)}`)); };
 
@@ -1282,11 +1271,11 @@ $('#pvClose').onclick = () => closeLayer('photo');
 $('#pvPrev').onclick = () => { PV.i--; showPV(); };
 $('#pvDownload').onclick = () => {
   const it = photoItems([PV.m]).find(x => x.ph.id === PV.m.photoIds[PV.i]); if (!it) return;
-  deliverFile(new Blob([it.ph.blob], { type: 'image/jpeg' }), it.name, 'Ảnh hiện trường');
+  deliverFile(new Blob([it.ph.blob], { type: 'image/jpeg' }), it.name, t("Ảnh hiện trường"));
 };
 $('#pvNext').onclick = () => { PV.i++; showPV(); };
 $('#pvDelete').onclick = async () => {
-  if (!await confirmBox('Xóa ảnh này?', 'Ảnh sẽ bị xóa khỏi điểm ghi nhận.', 'Xóa', true)) return;
+  if (!await confirmBox(t("Xóa ảnh này?"), t("Ảnh sẽ bị xóa khỏi điểm ghi nhận."), t("Xóa"), true)) return;
   const pid = PV.m.photoIds[PV.i];
   PV.m.photoIds.splice(PV.i, 1); await DB.del('photos', pid); S.photos.delete(pid);
   await saveMarker(PV.m); renderSheetPhotos(); renderMarks(); showPV();
@@ -1323,9 +1312,9 @@ $('#pvDelete').onclick = async () => {
 /* ======================= FILTER ======================= */
 function filterSummary() {
   const f = S.filter, parts = [];
-  if (f.cats.length) parts.push(f.cats.map(c => CATS[c].name).join(', '));
-  if (f.st === 'open') parts.push('chưa xong'); if (f.st === 'closed') parts.push('đã xong');
-  if (f.owner) parts.push(f.owner); if (f.over) parts.push('quá hạn');
+  if (f.cats.length) parts.push(f.cats.map(c => t(CATS[c].name)).join(', '));
+  if (f.st === 'open') parts.push(t("chưa xong")); if (f.st === 'closed') parts.push(t("đã xong"));
+  if (f.owner) parts.push(f.owner); if (f.over) parts.push(t("quá hạn"));
   return parts.join(' · ');
 }
 function updateFilterUI() {
@@ -1334,7 +1323,7 @@ function updateFilterUI() {
   const bar = $('#filterBar');
   if (on && S.drawing) {
     const all = dwgMarkers(), n = all.filter(passFilter).length;
-    bar.innerHTML = `<svg style="width:18px;height:18px"><use href="#i-filter"/></svg><span>Lọc: ${esc(filterSummary())} — ${n}/${all.length} điểm</span><button id="fbEdit">Sửa</button><button id="fbClear">Bỏ lọc</button>`;
+    bar.innerHTML = t("<svg style=\"width:18px;height:18px\"><use href=\"#i-filter\"/></svg><span>Lọc: {0} — {1}/{2} điểm</span><button id=\"fbEdit\">Sửa</button><button id=\"fbClear\">Bỏ lọc</button>", [esc(filterSummary()), n, all.length]);
     $('#fbEdit').onclick = openFilter; $('#fbClear').onclick = () => { S.filter = { cats: [], st: 'all', owner: '', over: false }; afterFilter(); };
     bar.hidden = false;
   } else bar.hidden = true;
@@ -1344,12 +1333,9 @@ async function openFilter() {
   const f = { ...S.filter, cats: [...S.filter.cats] };
   const owners = [...new Set(S.markers.map(m => (m.owner || '').trim()).filter(Boolean))].sort();
   const res = await modal({
-    title: 'Bộ lọc', cls: 'fmodal',
-    html: `<div class="grp"><span>Loại ghi nhận</span><div class="chips" id="fCats">${CAT_KEYS.map(c => `<button class="chip lt ${f.cats.includes(c) ? 'on' : ''}" data-c="${c}">${catIcon(c, '#64748b', '')}${esc(CATS[c].name)}</button>`).join('')}</div></div>
-      <div class="grp"><span>Trạng thái</span><div class="chips" id="fSt">${[['all', 'Tất cả'], ['open', 'Chưa xong'], ['closed', 'Đã xong / đóng']].map(([k, l]) => `<button class="chip lt ${f.st === k ? 'on' : ''}" data-s="${k}">${l}</button>`).join('')}</div></div>
-      <div class="grp"><span>Phụ trách</span><select id="fOwner"><option value="">Tất cả</option>${owners.map(o => `<option ${f.owner === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
-      <label class="ck"><input type="checkbox" id="fOver" ${f.over ? 'checked' : ''}><span>Chỉ điểm <b>quá hạn</b> xử lý</span></label>`,
-    buttons: [{ label: 'Bỏ lọc', value: 'clear' }, { label: 'Áp dụng', cls: 'primary', value: () => ({ ...f, owner: $('#fOwner').value, over: $('#fOver').checked }) }],
+    title: t("Bộ lọc"), cls: 'fmodal',
+    html: t("<div class=\"grp\"><span>Loại ghi nhận</span><div class=\"chips\" id=\"fCats\">{0}</div></div>\n      <div class=\"grp\"><span>Trạng thái</span><div class=\"chips\" id=\"fSt\">{1}</div></div>\n      <div class=\"grp\"><span>Phụ trách</span><select id=\"fOwner\"><option value=\"\">Tất cả</option>{2}</select></div>\n      <label class=\"ck\"><input type=\"checkbox\" id=\"fOver\" {3}><span>Chỉ điểm <b>quá hạn</b> xử lý</span></label>", [CAT_KEYS.map(c => `<button class="chip lt ${f.cats.includes(c) ? 'on' : ''}" data-c="${c}">${catIcon(c, '#64748b', '')}${esc(t(CATS[c].name))}</button>`).join(''), [['all', t("Tất cả")], ['open', t("Chưa xong")], ['closed', t("Đã xong / đóng")]].map(([k, l]) => `<button class="chip lt ${f.st === k ? 'on' : ''}" data-s="${k}">${l}</button>`).join(''), owners.map(o => `<option ${f.owner === o ? 'selected' : ''}>${esc(o)}</option>`).join(''), f.over ? 'checked' : '']),
+    buttons: [{ label: t("Bỏ lọc"), value: 'clear' }, { label: t("Áp dụng"), cls: 'primary', value: () => ({ ...f, owner: $('#fOwner').value, over: $('#fOver').checked }) }],
     onOpen: b => {
       b.querySelectorAll('#fCats button').forEach(x => x.onclick = () => { const c = x.dataset.c; f.cats = f.cats.includes(c) ? f.cats.filter(y => y !== c) : [...f.cats, c]; x.classList.toggle('on'); });
       b.querySelectorAll('#fSt button').forEach(x => x.onclick = () => { f.st = x.dataset.s; b.querySelectorAll('#fSt button').forEach(y => y.classList.toggle('on', y === x)); });
@@ -1372,19 +1358,15 @@ function renderList() {
   const all = dwgMarkers();
   const ms = sortMarks(all.filter(passFilter).filter(m => !q || (markCode(m) + ' ' + m.title + ' ' + m.note + ' ' + (m.owner || '') + ' ' + Object.values(m.extra || {}).join(' ')).toLowerCase().includes(q)));
   const open = ms.filter(m => !isClosed(m)).length, over = ms.filter(isOverdue).length;
-  $('#lpSum').innerHTML = `<b>${ms.length}</b>${ms.length !== all.length ? '/' + all.length : ''} điểm · ${open} chưa xong${over ? ` · <span style="color:#dc2626">${over} quá hạn</span>` : ''}${filterActive() ? ` · lọc: ${esc(filterSummary())}` : ''}`;
+  $('#lpSum').innerHTML = t("<b>{0}</b>{1} điểm · {2} chưa xong{3}{4}", [ms.length, ms.length !== all.length ? '/' + all.length : '', open, over ? t(" · <span style=\"color:#dc2626\">{0} quá hạn</span>", [over]) : '', filterActive() ? t(" · lọc: {0}", [esc(filterSummary())]) : '']);
   const box = $('#lpList'); box.innerHTML = '';
-  if (!ms.length) { box.innerHTML = `<div class="empty"><p>${all.length ? 'Không có điểm phù hợp.' : 'Chưa có điểm ghi nhận nào.<br>Bấm “Đánh dấu”, chọn loại rồi chạm/kéo trên bản vẽ.'}</p></div>`; return; }
+  if (!ms.length) { box.innerHTML = `<div class="empty"><p>${all.length ? t("Không có điểm phù hợp.") : t("Chưa có điểm ghi nhận nào.<br>Bấm “Đánh dấu”, chọn loại rồi chạm/kéo trên bản vẽ.")}</p></div>`; return; }
   let lastCat = null;
   ms.forEach(m => {
-    if (m.cat !== lastCat) { lastCat = m.cat; const n = ms.filter(x => x.cat === m.cat).length; box.insertAdjacentHTML('beforeend', `<div class="lp-page">${esc(CATS[m.cat].name)} (${n})</div>`); }
+    if (m.cat !== lastCat) { lastCat = m.cat; const n = ms.filter(x => x.cat === m.cat).length; box.insertAdjacentHTML('beforeend', `<div class="lp-page">${esc(t(CATS[m.cat].name))} (${n})</div>`); }
     const st = stOf(m), ph = m.photoIds.length ? S.photos.get(m.photoIds[0]) : null;
     const b = document.createElement('button'); b.className = 'lp-item';
-    b.innerHTML = `<svg class="ic" viewBox="-18 -18 36 36">${symbolInner(m.cat, st.color, String(m.n), 13)}</svg>
-      <div class="body"><div class="t ${m.title ? '' : 'empty-t'}"><span class="code" style="background:${st.color}">${esc(markCode(m))}</span>${esc(m.title || '(chưa có tiêu đề)')}</div>
-      ${m.note ? `<div class="d">${esc(m.note)}</div>` : ''}
-      <div class="m">${st.label} · ${KINDS[m.kind]} · tr.${m.page} · ${m.photoIds.length} ảnh${m.owner ? ' · ' + esc(m.owner) : ''}${m.due ? ` · <span class="due-txt ${isOverdue(m) ? 'over' : ''}">Hạn ${fmtISO(m.due)}${isOverdue(m) ? ' (quá hạn)' : ''}</span>` : ''}</div></div>
-      ${ph ? `<div class="ph" style="background-image:url('${blobURL('t' + ph.id, ph.thumb)}')"></div>` : ''}`;
+    b.innerHTML = t("<svg class=\"ic\" viewBox=\"-18 -18 36 36\">{0}</svg>\n      <div class=\"body\"><div class=\"t {1}\"><span class=\"code\" style=\"background:{2}\">{3}</span>{4}</div>\n      {5}\n      <div class=\"m\">{6} · {7} · {8} · {9} ảnh{10}{11}</div></div>\n      {12}", [symbolInner(m.cat, st.color, String(m.n), 13), m.title ? '' : 'empty-t', st.color, esc(markCode(m)), esc(m.title || t("(chưa có tiêu đề)")), m.note ? `<div class="d">${esc(m.note)}</div>` : '', t(st.label), t(KINDS[m.kind]), t("tr.{0}", [m.page]), m.photoIds.length, m.owner ? ' · ' + esc(m.owner) : '', m.due ? t(" · <span class=\"due-txt {0}\">Hạn {1}{2}</span>", [isOverdue(m) ? 'over' : '', fmtISO(m.due), isOverdue(m) ? t(" (quá hạn)") : '']) : '', ph ? `<div class="ph" style="background-image:url('${blobURL('t' + ph.id, ph.thumb)}')"></div>` : '']);
     b.onclick = () => jumpToMarker(m);
     box.appendChild(b);
   });
@@ -1406,7 +1388,7 @@ async function jumpToMarker(m) {
 const hex2rgb = h => { const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
 const pdfColor = hex => { const [r, g, b] = hex2rgb(hex); return window.PDFLib.rgb(r, g, b); };
 async function fetchBytes(url) {
-  const r = await fetch(url); if (!r.ok) throw new Error('Không tải được ' + url + ' – mở app khi có mạng một lần để tải đủ dữ liệu.');
+  const r = await fetch(url); if (!r.ok) throw new Error(t("Không tải được ") + url + t(" – mở app khi có mạng một lần để tải đủ dữ liệu."));
   return new Uint8Array(await r.arrayBuffer());
 }
 let fontCache = null;
@@ -1414,6 +1396,11 @@ async function embedFonts(doc) {
   doc.registerFontkit(window.fontkit);
   if (!fontCache) fontCache = { r: await fetchBytes('BeVietnamPro-Regular.ttf'), b: await fetchBytes('BeVietnamPro-Bold.ttf') };
   return { R: await doc.embedFont(fontCache.r, { subset: true }), B: await doc.embedFont(fontCache.b, { subset: true }) };
+}
+let cjkCache = null;
+async function embedCJK(doc) {
+  if (!cjkCache) cjkCache = { r: await fetchBytes('NotoSansSC-Regular.ttf'), b: await fetchBytes('NotoSansSC-Bold.ttf') };
+  return { R: await doc.embedFont(cjkCache.r, { subset: true }), B: await doc.embedFont(cjkCache.b, { subset: true }) };
 }
 /** Draw a category symbol (vector) centred at user point (cx,cy). */
 function pdfSymbol(pg, cx, cy, r, cat, colHex, label, font, rot) {
@@ -1482,20 +1469,20 @@ function annotateDoc(doc, ms, font) {
 /* Quick export: one drawing with marks. */
 async function exportDrawingDialog() {
   const ms0 = dwgMarkers();
-  if (!ms0.length) { toast('Chưa có điểm ghi nhận nào để xuất'); return; }
+  if (!ms0.length) { toast(t("Chưa có điểm ghi nhận nào để xuất")); return; }
   const useFilter = filterActive();
-  const ok = await confirmBox('Xuất bản vẽ đã đánh dấu', `Xuất <b>${esc(S.drawing.name)}</b> với ${useFilter ? `<b>${ms0.filter(passFilter).length}</b> điểm theo bộ lọc hiện tại (${esc(filterSummary())})` : `tất cả <b>${ms0.length}</b> điểm`}.<br><br><span style="color:#64748b;font-size:13.5px">Cần báo cáo đầy đủ gửi các bên? Dùng <b>Lập báo cáo PDF</b>.</span>`, 'Xuất');
+  const ok = await confirmBox(t("Xuất bản vẽ đã đánh dấu"), t("Xuất <b>{0}</b> với {1}.<br><br><span style=\"color:#64748b;font-size:13.5px\">Cần báo cáo đầy đủ gửi các bên? Dùng <b>Lập báo cáo PDF</b>.</span>", [esc(S.drawing.name), useFilter ? t("<b>{0}</b> điểm theo bộ lọc hiện tại ({1})", [ms0.filter(passFilter).length, esc(filterSummary())]) : t("tất cả <b>{0}</b> điểm", [ms0.length])]), t("Xuất"));
   if (!ok) return;
   const ms = useFilter ? ms0.filter(passFilter) : ms0;
-  busy('Đang tạo PDF…');
+  busy(t("Đang tạo PDF…"));
   try {
     await loadPdfLib();
     const doc = await window.PDFLib.PDFDocument.load(await S.pdfBlob.arrayBuffer(), { ignoreEncryption: true, updateMetadata: false });
     const { B } = await embedFonts(doc);
     annotateDoc(doc, ms, B);
     const bytes = await doc.save(); unbusy();
-    await deliverFile(new Blob([bytes], { type: 'application/pdf' }), `${safeName(S.drawing.name)}_danh-dau.pdf`, 'Đã tạo PDF');
-  } catch (e) { unbusy(); console.error(e); modal({ title: 'Xuất PDF lỗi', html: esc(e.message || e) }); }
+    await deliverFile(new Blob([bytes], { type: 'application/pdf' }), `${safeName(S.drawing.name)}_danh-dau.pdf`, t("Đã tạo PDF"));
+  } catch (e) { unbusy(); console.error(e); modal({ title: t("Xuất PDF lỗi"), html: esc(e.message || e) }); }
 }
 
 /** Render a whole page once (capped size); snippets are cropped from it – much faster than one render per mark. */
@@ -1559,13 +1546,14 @@ function rpSelected() {
   return sortMarks(S.markers.filter(m => RP.dwgs.includes(m.drawingId) && RP.cats.includes(m.cat) &&
     (st === 'all' || (st === 'open' ? !isClosed(m) : isClosed(m)))));
 }
-function rpAutoTitle() { return RP.cats.length === 1 ? CATS[RP.cats[0]].title : 'BÁO CÁO GHI NHẬN HIỆN TRƯỜNG'; }
+function rpLang() { return $('#rpLang')?.value || getLang(); }
+function rpAutoTitle(l = rpLang()) { return tl(l, RP.cats.length === 1 ? CATS[RP.cats[0]].title : "BÁO CÁO GHI NHẬN HIỆN TRƯỜNG"); }
 function fillReportProjectHint() {
   const p = S.project;
-  $('#rpProjHint').textContent = `(${[p.company || 'chưa có đơn vị lập', p.logo ? 'có logo' : 'chưa có logo'].join(' · ')})`;
+  $('#rpProjHint').textContent = `(${[p.company || t("chưa có đơn vị lập"), p.logo ? t("có logo") : t("chưa có logo")].join(' · ')})`;
 }
 function openReport(dwgIds) {
-  if (!S.markers.length) { toast('Dự án chưa có điểm ghi nhận nào'); return; }
+  if (!S.markers.length) { toast(t("Dự án chưa có điểm ghi nhận nào")); return; }
   if (S.cur) flushSheet();
   const p = S.project, rp = p.rp || {};
   const present = CAT_KEYS.filter(c => S.markers.some(m => m.cat === c));
@@ -1573,18 +1561,21 @@ function openReport(dwgIds) {
   RP = { cats: present, dwgs: dwgIds?.length ? dwgIds.filter(id => dwgWith.includes(id)) : dwgWith, titleTouched: false, autoNo: rpAutoNo() };
   if (!RP.dwgs.length) RP.dwgs = dwgWith;
   $('#rpCats').innerHTML = CAT_KEYS.map(c => { const n = S.markers.filter(m => m.cat === c).length;
-    return `<button class="chip lt ${RP.cats.includes(c) ? 'on' : ''}" data-c="${c}" ${n ? '' : 'disabled style="opacity:.4"'}>${catIcon(c, '#64748b', '')}${esc(CATS[c].name)} (${n})</button>`; }).join('');
+    return `<button class="chip lt ${RP.cats.includes(c) ? 'on' : ''}" data-c="${c}" ${n ? '' : 'disabled style="opacity:.4"'}>${catIcon(c, '#64748b', '')}${esc(t(CATS[c].name))} (${n})</button>`; }).join('');
   $('#rpCats').querySelectorAll('button').forEach(b => b.onclick = () => {
     const c = b.dataset.c; RP.cats = RP.cats.includes(c) ? RP.cats.filter(x => x !== c) : [...RP.cats, c];
     b.classList.toggle('on', RP.cats.includes(c)); if (!RP.titleTouched) $('#rpTitle').value = rpAutoTitle(); updateRpCount();
   });
   $('#rpDwgs').innerHTML = S.drawings.map(d => { const n = S.markers.filter(m => m.drawingId === d.id).length;
-    return `<label><input type="checkbox" value="${d.id}" ${RP.dwgs.includes(d.id) ? 'checked' : ''} ${n ? '' : 'disabled'}><span>${esc(d.name)}</span><small>${n} điểm</small></label>`; }).join('');
+    return t("<label><input type=\"checkbox\" value=\"{0}\" {1} {2}><span>{3}</span><small>{4} điểm</small></label>", [d.id, RP.dwgs.includes(d.id) ? 'checked' : '', n ? '' : 'disabled', esc(d.name), n]); }).join('');
   $('#rpDwgs').querySelectorAll('input').forEach(i => i.onchange = () => { RP.dwgs = [...$('#rpDwgs').querySelectorAll('input:checked')].map(x => x.value); updateRpCount(); });
   $('#rpSt').value = rp.st || 'all';
-  $('#rpTitle').value = rpAutoTitle(); $('#rpNo').value = RP.autoNo; $('#rpDate').value = todayISO();
+  $('#rpNo').value = RP.autoNo; $('#rpDate').value = todayISO();
   $('#rpTo').value = p.to || ''; $('#rpSummary').value = rp.summary || '';
+  $('#rpLang').innerHTML = Object.entries(LANGS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
+  $('#rpLang').value = LANGS[rp.lang] ? rp.lang : getLang();
   $('#rpPerRow').value = rp.perRow || '2'; $('#rpQuality').value = rp.quality || 'std';
+  $('#rpTitle').value = rpAutoTitle();
   $('#rpDrawing').checked = rp.drawing !== false; $('#rpDetail').checked = rp.detail !== false; $('#rpSnip').checked = rp.snip !== false;
   fillReportProjectHint(); updateRpCount();
   $('#reportPanel').hidden = false;
@@ -1592,40 +1583,52 @@ function openReport(dwgIds) {
 }
 function updateRpCount() {
   const ms = rpSelected(), ph = ms.reduce((a, m) => a + m.photoIds.length, 0);
-  $('#rpCount').textContent = `Báo cáo gồm ${ms.length} điểm, ${ph} ảnh hiện trường, ${RP.dwgs.length} bản vẽ.`;
+  $('#rpCount').textContent = t("Báo cáo gồm {0} điểm, {1} ảnh hiện trường, {2} bản vẽ.", [ms.length, ph, RP.dwgs.length]);
 }
 function saveRpForm() {
   if (!S.project) return;
-  S.project.rp = { summary: $('#rpSummary').value, st: $('#rpSt').value, perRow: $('#rpPerRow').value, quality: $('#rpQuality').value,
+  S.project.rp = { lang: $('#rpLang').value, summary: $('#rpSummary').value, st: $('#rpSt').value, perRow: $('#rpPerRow').value, quality: $('#rpQuality').value,
     drawing: $('#rpDrawing').checked, detail: $('#rpDetail').checked, snip: $('#rpSnip').checked };
   DB.put('projects', S.project);
 }
 $('#rpTitle').addEventListener('input', () => { RP.titleTouched = true; });
 $('#rpSt').onchange = updateRpCount;
+$('#rpLang').onchange = () => { if (!RP.titleTouched) $('#rpTitle').value = rpAutoTitle(); };
 $('#rpClose').onclick = () => closeLayer('report');
 $('#rpEditProj').onclick = () => openProjPanel(S.project);
 $('#rpGo').onclick = async () => {
   saveRpForm();
   const ms = rpSelected();
-  if (!ms.length) { toast('Không có điểm nào theo lựa chọn'); return; }
+  if (!ms.length) { toast(t("Không có điểm nào theo lựa chọn")); return; }
   const p = S.project;
   const cfg = { title: $('#rpTitle').value.trim() || rpAutoTitle(), no: $('#rpNo').value.trim(), date: $('#rpDate').value || todayISO(),
     to: $('#rpTo').value.trim(), summary: $('#rpSummary').value.trim(), perRow: +$('#rpPerRow').value, quality: $('#rpQuality').value,
     drawing: $('#rpDrawing').checked, detail: $('#rpDetail').checked, snip: $('#rpSnip').checked,
-    dwgs: S.drawings.filter(d => RP.dwgs.includes(d.id)), marks: ms, project: p };
+    dwgs: S.drawings.filter(d => RP.dwgs.includes(d.id)), marks: ms, project: p, lang: rpLang() };
   const ok = await buildReport(cfg);
   if (ok && cfg.no && cfg.no === RP.autoNo) { p.seq = (p.seq || 1) + 1; await DB.put('projects', p); RP.autoNo = rpAutoNo(); $('#rpNo').value = RP.autoNo; renderProject(); }
 };
 window.__pm = { S, DB };
 
 async function buildReport(cfg) {
-  busy('Đang chuẩn bị báo cáo…');
-  try { await loadPdfLib(); } catch (e) { unbusy(); modal({ title: 'Lỗi', html: esc(e.message) }); return false; }
+  const appLang = getLang();
+  let r;
+  setLang(cfg.lang || appLang);
+  try { r = await buildReport0(cfg, appLang); } finally { setLang(appLang); }
+  if (!r) return false;
+  renderReports();
+  await deliverFile(r.blob, r.fname, t("Đã tạo báo cáo"), t("Báo cáo được lưu trong mục <b>Báo cáo đã xuất</b> của dự án – có thể chia sẻ lại bất cứ lúc nào."));
+  return true;
+}
+async function buildReport0(cfg, AL) {
+  const ui = (k, args) => tl(AL, k, args);
+  busy(ui("Đang chuẩn bị báo cáo…"));
+  try { await loadPdfLib(); } catch (e) { unbusy(); modal({ title: ui("Lỗi"), html: esc(e.message) }); return false; }
   const PDFLib = window.PDFLib;
   const { PDFDocument, rgb, degrees } = PDFLib;
   const P = cfg.project, ms = cfg.marks;
   const step = t => { $('#busyText').textContent = t; };
-  busy('Đang chuẩn bị báo cáo…');
+  busy(ui("Đang chuẩn bị báo cáo…"));
   const docs = new Map();
   const getDoc = async did => {
     if (S.doc && S.drawing?.id === did) return S.doc;
@@ -1635,6 +1638,28 @@ async function buildReport(cfg) {
   try {
     const out = await PDFDocument.create();
     const { R, B } = await embedFonts(out);
+    const CJK_RE = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f]/;
+    let FB = null;
+    if (getLang() === 'zh' || CJK_RE.test(JSON.stringify([cfg.title, cfg.to, cfg.summary, P.name, P.code, P.client, P.company, P.location, P.author, P.signers, cfg.dwgs.map(d => d.name), ms.map(m => [m.title, m.note, m.owner, m.extra])]))) {
+      step(ui("Đang tải phông chữ tiếng Trung…"));
+      try { const c = await embedCJK(out); FB = new Map([[R, c.R], [B, c.B]]); }
+      catch (e) { console.warn(e); toast(ui("Không tải được phông chữ tiếng Trung – hãy mở app khi có mạng."), 4000); }
+    }
+    const hasG = new Map();
+    const inBase = (f, ch) => { let m = hasG.get(f); if (!m) hasG.set(f, m = new Map()); if (!m.has(ch)) m.set(ch, ch.charCodeAt(0) < 0x2e80 || f.embedder.font.hasGlyphForCodePoint(ch.codePointAt(0))); return m.get(ch); };
+    /** Split a string into runs of [text, font] using the CJK fallback where the base font has no glyph. */
+    const runs = (s, f) => {
+      if (!FB || !FB.has(f)) return [[s, f]];
+      const fb = FB.get(f), outR = [];
+      for (const ch of s) { const ff = inBase(f, ch) ? f : fb; const last = outR[outR.length - 1]; if (last && last[1] === ff) last[0] += ch; else outR.push([ch, ff]); }
+      return outR;
+    };
+    const DT = (page, s, o) => {
+      const rs = runs(s, o.font); if (rs.length === 1) return page.drawText(s, { ...o, font: rs[0][1] });
+      const rot = o.rotate ? ((o.rotate.angle ?? o.rotate.value ?? 0) % 360 + 360) % 360 : 0;
+      let x = o.x, yy = o.y;
+      for (const [str, ff] of rs) { page.drawText(str, { ...o, x, y: yy, font: ff }); const [ax, ay] = dispToU(rot)(ff.widthOfTextAtSize(str, o.size), 0); x += ax; yy += ay; }
+    };
     let logo = null;
     if (P.logo) { try { logo = await out.embedPng(Uint8Array.from(atob(P.logo.split(',')[1]), c => c.charCodeAt(0))); } catch (e) { console.warn(e); } }
     const N = s => String(s ?? '').normalize('NFC').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '');
@@ -1643,8 +1668,8 @@ async function buildReport(cfg) {
     const DARK = '#0f172a', MUTED = '#64748b', LINE = '#cbd5e1', SOFT = '#f1f5f9';
     let pg = null, y = 0;
     const kinds = [];
-    const tw = (s, f, z) => f.widthOfTextAtSize(s, z);
-    const text = (s, x, base, f = R, z = 10, col = DARK) => pg.drawText(N(s), { x, y: H - base, size: z, font: f, color: C(col) });
+    const tw = (s, f, z) => runs(s, f).reduce((a, [str, ff]) => a + ff.widthOfTextAtSize(str, z), 0);
+    const text = (s, x, base, f = R, z = 10, col = DARK) => DT(pg, N(s), { x, y: H - base, size: z, font: f, color: C(col) });
     const textC = (s, cx, base, f, z, col) => text(s, cx - tw(N(s), f, z) / 2, base, f, z, col);
     const textR = (s, rx, base, f, z, col) => text(s, rx - tw(N(s), f, z), base, f, z, col);
     const rect = (x, yy, w, h, fill, stroke, bw = 0.6) => pg.drawRectangle({ x, y: H - yy - h, width: w, height: h,
@@ -1655,8 +1680,8 @@ async function buildReport(cfg) {
       const outL = [];
       for (const para of N(s).split(/\r?\n/)) {
         let line = '';
-        for (const w of para.split(/\s+/).filter(Boolean)) {
-          const t = line ? line + ' ' + w : w;
+        for (const w of para.replace(/([\u2e80-\u9fff\uff00-\uffef\u3000-\u303f])(?=\S)/g, '$1\u0001').split(/[\s\u0001]+/).filter(Boolean)) {
+          const t = line ? line + (CJK_RE.test(line.slice(-1)) || CJK_RE.test(w[0]) ? '' : ' ') + w : w;
           if (tw(t, f, z) <= maxW) { line = t; continue; }
           if (line) outL.push(line);
           if (tw(w, f, z) > maxW) { let q = ''; for (const ch of w) { if (tw(q + ch, f, z) > maxW) { outL.push(q); q = ch; } else q += ch; } line = q; }
@@ -1672,7 +1697,7 @@ async function buildReport(cfg) {
       let x = M;
       if (logo) { const k = Math.min(70 / logo.width, 22 / logo.height); pg.drawImage(logo, { x, y: H - TOP - 22 + (22 - logo.height * k) / 2, width: logo.width * k, height: logo.height * k }); x += logo.width * k + 8; }
       text(wrap(P.company || P.name, B, 8.5, 260, 1)[0] || '', x, TOP + 14, B, 8.5, DARK);
-      textR([cfg.no ? 'Số: ' + cfg.no : '', fmtISO(cfg.date)].filter(Boolean).join('  ·  '), W - M, TOP + 14, R, 8, MUTED);
+      textR([cfg.no ? t("Số: ") + cfg.no : '', fmtISO(cfg.date)].filter(Boolean).join('  ·  '), W - M, TOP + 14, R, 8, MUTED);
       hline(M, W - M, TOP + 28, LINE, 0.8); y = TOP + 42;
     };
     const newPage = (withHeader = true) => { pg = out.addPage([W, H]); kinds.push('r'); y = TOP; if (withHeader) header(); };
@@ -1682,16 +1707,16 @@ async function buildReport(cfg) {
     const signers = (P.signers || '').split('\n').map(s => s.trim()).filter(Boolean);
 
     /* ---- cover ---- */
-    step('Đang tạo trang bìa và bảng tổng hợp…');
+    step(ui("Đang tạo trang bìa và bảng tổng hợp…"));
     newPage(false);
     {
       let x = M; const hh = 44;
       if (logo) { const k = Math.min(120 / logo.width, hh / logo.height); pg.drawImage(logo, { x, y: H - y - hh + (hh - logo.height * k) / 2, width: logo.width * k, height: logo.height * k }); x += logo.width * k + 12; }
       const cl = wrap(P.company || '', B, 11, W - M - x - 150, 2);
       cl.forEach((l, i) => text(l, x, y + 16 + i * 14, B, 11, DARK));
-      if (P.author) text('Người lập: ' + P.author, x, y + 18 + cl.length * 14, R, 8.5, MUTED);
-      textR(cfg.no ? 'Số: ' + cfg.no : '', W - M, y + 16, B, 9.5, DARK);
-      textR('Ngày ' + fmtISO(cfg.date), W - M, y + 31, R, 9, MUTED);
+      if (P.author) text(t("Người lập: ") + P.author, x, y + 18 + cl.length * 14, R, 8.5, MUTED);
+      textR(cfg.no ? t("Số: ") + cfg.no : '', W - M, y + 16, B, 9.5, DARK);
+      textR(t("Ngày ") + fmtISO(cfg.date), W - M, y + 31, R, 9, MUTED);
       y += Math.max(hh, 22 + cl.length * 14) + 12;
       hline(M, W - M, y, DARK, 1.2); y += 26;
       wrap(cfg.title.toUpperCase(), B, 16, CW - 20).forEach(l => { textC(l, W / 2, y + 14, B, 16, DARK); y += 21; });
@@ -1699,16 +1724,16 @@ async function buildReport(cfg) {
       y += 14;
     }
     {
-      const statLine = cats.map(c => { const a = ms.filter(m => m.cat === c), o = a.filter(m => !isClosed(m)).length; return `${CATS[c].name}: ${a.length}${o ? ` (chưa xong ${o})` : ''}`; }).join(' · ');
+      const statLine = cats.map(c => { const a = ms.filter(m => m.cat === c), o = a.filter(m => !isClosed(m)).length; return `${t(CATS[c].name)}: ${a.length}${o ? t(" (chưa xong {0})", [o]) : ''}`; }).join(' · ');
       const over = ms.filter(isOverdue).length;
       const rows = [
-        ['Dự án / Công trình', P.name + (P.code ? ` — Mã: ${P.code}` : '')], ['Chủ đầu tư', P.owner], ['Địa điểm', P.loc],
-        ['Bản vẽ', cfg.dwgs.map(d => d.name).join('; ')], ['Kính gửi', cfg.to], ['Đơn vị lập', P.company], ['Người lập', P.author],
-        ['Ngày lập', fmtISO(cfg.date)], ['Số điểm ghi nhận', `${ms.length} điểm — ${statLine}${over ? ` · Quá hạn: ${over}` : ''}`],
+        [t("Dự án / Công trình"), P.name + (P.code ? t(" — Mã: {0}", [P.code]) : '')], [t("Chủ đầu tư"), P.owner], [t("Địa điểm"), P.loc],
+        [t("Bản vẽ"), cfg.dwgs.map(d => d.name).join('; ')], [t("Kính gửi"), cfg.to], [t("Đơn vị lập"), P.company], [t("Người lập"), P.author],
+        [t("Ngày lập"), fmtISO(cfg.date)], [t("Số điểm ghi nhận"), t("{0} điểm — {1}{2}", [ms.length, statLine, over ? t(" · Quá hạn: {0}", [over]) : ''])],
       ].filter(r => r[1]);
       const LW = 130;
       for (const [k, v] of rows) {
-        const f = k === 'Kính gửi' ? B : R, ls = wrap(v, f, 9.5, CW - LW - 16), h = ls.length * 13 + 10;
+        const f = k === t("Kính gửi") ? B : R, ls = wrap(v, f, 9.5, CW - LW - 16), h = ls.length * 13 + 10;
         ensure(h);
         rect(M, y, LW, h, SOFT, LINE); rect(M + LW, y, CW - LW, h, null, LINE);
         text(k, M + 8, y + 15, B, 9, '#334155');
@@ -1719,15 +1744,15 @@ async function buildReport(cfg) {
     }
     let sec = 1; const roman = ['I', 'II', 'III', 'IV', 'V'];
     if (cfg.summary) {
-      section(`${roman[sec++ - 1]}. NỘI DUNG TÓM TẮT / KIẾN NGHỊ`);
+      section(t("{0}. NỘI DUNG TÓM TẮT / KIẾN NGHỊ", [roman[sec++ - 1]]));
       for (const l of wrap(cfg.summary, R, 10, CW)) { ensure(15); text(l, M, y + 10, R, 10, DARK); y += 14.5; }
       y += 12;
     }
     /* ---- summary table (grouped by category) ---- */
-    section(`${roman[sec++ - 1]}. BẢNG TỔNG HỢP CÁC VỊ TRÍ GHI NHẬN`);
+    section(t("{0}. BẢNG TỔNG HỢP CÁC VỊ TRÍ GHI NHẬN", [roman[sec++ - 1]]));
     {
       const multiDwg = cfg.dwgs.length > 1;
-      const cols = [['Mã', 54], [multiDwg ? 'Bản vẽ / trang' : 'Trang', multiDwg ? 74 : 34], ['Nội dung', 0], ['Phụ trách', 76], ['Hạn xử lý', 54], ['Trạng thái', 62]];
+      const cols = [[t("Mã"), 54], [multiDwg ? t("Bản vẽ / trang") : t("Trang"), multiDwg ? 74 : 34], [t("Nội dung"), 0], [t("Phụ trách"), 76], [t("Hạn xử lý"), 54], [t("Trạng thái"), 62]];
       cols[2][1] = CW - cols.reduce((a, c) => a + c[1], 0);
       const xs = []; let acc = M; cols.forEach(c => { xs.push(acc); acc += c[1]; });
       const head = () => { rect(M, y, CW, 20, '#e2e8f0', LINE); cols.forEach((c, i) => textC(c[0], xs[i] + c[1] / 2, y + 13.5, B, 8, '#1e293b')); y += 20; };
@@ -1737,15 +1762,15 @@ async function buildReport(cfg) {
         if (ensure(18 + 48)) head();
         rect(M, y, CW, 18, '#f8fafc', LINE);
         sym(M + 10, y + 9, 5.6, c, '');
-        text(`${CATS[c].name.toUpperCase()} — ${group.length} điểm`, M + 20, y + 12.5, B, 8.5, DARK);
+        text(t("{0} — {1} điểm", [t(CATS[c].name).toUpperCase(), group.length]), M + 20, y + 12.5, B, 8.5, DARK);
         y += 18;
         for (const m of group) {
           const st = stOf(m);
-          const tl = wrap(m.title || '(Chưa có tiêu đề)', B, 9, cols[2][1] - 10, 3);
+          const tl = wrap(m.title || t("(Chưa có tiêu đề)"), B, 9, cols[2][1] - 10, 3);
           const nl = m.note ? wrap(m.note, R, 8.2, cols[2][1] - 10, 4) : [];
           const ol = wrap(m.owner || '—', R, 8.2, cols[3][1] - 8, 4);
           const dl = multiDwg ? wrap(dwgName(m.drawingId), R, 7.4, cols[1][1] - 8, 2) : [];
-          const stl = wrap(st.label, B, 8, cols[5][1] - 6, 2);
+          const stl = wrap(t(st.label), B, 8, cols[5][1] - 6, 2);
           const h = Math.max(tl.length * 12 + nl.length * 10.5, ol.length * 10.5, dl.length * 9.5 + 10, 16) + 12;
           if (ensure(h)) head();
           cols.forEach((cc, i) => rect(xs[i], y, cc[1], h, null, LINE));
@@ -1759,7 +1784,7 @@ async function buildReport(cfg) {
           ol.forEach((l, i) => text(l, xs[3] + 4, y + 14 + i * 10.5, R, 8.2, DARK));
           if (m.due) {
             textC(fmtISO(m.due), xs[4] + cols[4][1] / 2, y + 14, isOverdue(m) ? B : R, 8.2, isOverdue(m) ? '#dc2626' : DARK);
-            if (isOverdue(m)) textC('Quá hạn', xs[4] + cols[4][1] / 2, y + 24.5, R, 7, '#dc2626');
+            if (isOverdue(m)) textC(t("Quá hạn"), xs[4] + cols[4][1] / 2, y + 24.5, R, 7, '#dc2626');
           } else textC('—', xs[4] + cols[4][1] / 2, y + 14, R, 8.2, MUTED);
           stl.forEach((l, i) => textC(l, xs[5] + cols[5][1] / 2, y + 14 + i * 10, B, 8, st.color));
           y += h;
@@ -1767,23 +1792,23 @@ async function buildReport(cfg) {
       }
       y += 8;
       const notes = [];
-      if (cfg.drawing) notes.push('vị trí xem Phụ lục 1 (bản vẽ đánh dấu)');
-      if (cfg.detail) notes.push('chi tiết và hình ảnh hiện trường xem Phụ lục 2');
-      if (notes.length) { ensure(14); text('Ghi chú: ' + notes.join('; ') + '.', M, y + 9, R, 8, MUTED); y += 16; }
+      if (cfg.drawing) notes.push(t("vị trí xem Phụ lục 1 (bản vẽ đánh dấu)"));
+      if (cfg.detail) notes.push(t("chi tiết và hình ảnh hiện trường xem Phụ lục 2"));
+      if (notes.length) { ensure(14); text(t("Ghi chú: ") + notes.join('; ') + '.', M, y + 9, R, 8, MUTED); y += 16; }
       y += 10;
     }
     /* ---- signatures ---- */
     if (signers.length) {
       const perRow = Math.min(3, signers.length), gap = 10, bw = (CW - gap * (perRow - 1)) / perRow, bh = 108;
-      ensure(22 + bh); section(`${roman[sec++ - 1]}. XÁC NHẬN CỦA CÁC BÊN`);
-      const authorIdx = Math.max(0, signers.findIndex(s => /lập/i.test(s)));
+      ensure(22 + bh); section(t("{0}. XÁC NHẬN CỦA CÁC BÊN", [roman[sec++ - 1]]));
+      const authorIdx = Math.max(0, signers.findIndex(s => /lập|prepar|编制/i.test(s)));
       for (let i = 0; i < signers.length; i += perRow) {
         ensure(bh + 8);
         for (let j = 0; j < perRow && i + j < signers.length; j++) {
           const x = M + j * (bw + gap), cx = x + bw / 2;
           rect(x, y, bw, bh, null, LINE);
           wrap(signers[i + j].toUpperCase(), B, 8.8, bw - 12, 2).forEach((l, k) => textC(l, cx, y + 16 + k * 11.5, B, 8.8, DARK));
-          textC('(Ký, ghi rõ họ tên)', cx, y + 42, R, 7.5, MUTED);
+          textC(t("(Ký, ghi rõ họ tên)"), cx, y + 42, R, 7.5, MUTED);
           if (i + j === authorIdx && P.author) textC(wrap(P.author, B, 9, bw - 12, 1)[0], cx, y + bh - 10, B, 9, DARK);
         }
         y += bh + 8;
@@ -1794,7 +1819,7 @@ async function buildReport(cfg) {
     if (cfg.drawing) {
       for (const d of cfg.dwgs) {
         const dm = ms.filter(m => m.drawingId === d.id); if (!dm.length) continue;
-        step(`Đang đánh dấu bản vẽ ${d.name}…`);
+        step(ui("Đang đánh dấu bản vẽ {0}…", [d.name]));
         const rec = await DB.get('pdfs', d.id);
         const src = await PDFDocument.load(await rec.blob.arrayBuffer(), { ignoreEncryption: true, updateMetadata: false });
         const sf = await embedFonts(src);
@@ -1812,7 +1837,7 @@ async function buildReport(cfg) {
       ms.forEach(m => { const k = m.drawingId + '|' + m.page; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(m); });
       let gi = 0;
       for (const [k, list] of groups) {
-        gi++; step(`Đang trích vị trí trên bản vẽ (${gi}/${groups.size})…`);
+        gi++; step(ui("Đang trích vị trí trên bản vẽ ({0}/{1})…", [gi, groups.size]));
         try {
           const pi = await renderPageImage(await getDoc(list[0].drawingId), list[0].page);
           for (const m of list) snips.set(m.id, await canvasToBlob(snippetFromPage(pi, m, 800, 600), 'image/jpeg', 0.85));
@@ -1822,33 +1847,33 @@ async function buildReport(cfg) {
     }
     if (cfg.detail) {
       newPage();
-      text(cfg.drawing ? 'PHỤ LỤC 2' : 'PHỤ LỤC', M, y + 12, B, 13, DARK);
-      text('CHI TIẾT CÁC VỊ TRÍ GHI NHẬN VÀ HÌNH ẢNH HIỆN TRƯỜNG', M, y + 30, B, 11, '#334155');
+      text(cfg.drawing ? t("PHỤ LỤC 2") : t("PHỤ LỤC"), M, y + 12, B, 13, DARK);
+      text(t("CHI TIẾT CÁC VỊ TRÍ GHI NHẬN VÀ HÌNH ẢNH HIỆN TRƯỜNG"), M, y + 30, B, 11, '#334155');
       y += 46;
       const COLS = cfg.perRow || 2, GAP = 8, CELLW = (CW - GAP * (COLS - 1)) / COLS, CELLH = CELLW * 0.75, CAP = 13;
       let i = 0, lastCat = null;
       for (const m of ms) {
-        i++; step(`Đang xử lý ảnh ${markCode(m)} (${i}/${ms.length})…`);
+        i++; step(ui("Đang xử lý ảnh {0} ({1}/{2})…", [markCode(m), i, ms.length]));
         const st = stOf(m);
-        const tl = wrap(m.title || '(Chưa có tiêu đề)', B, 11.5, CW - 34 - 90 - 50, 3);
-        const meta = wrap([`${KINDS[m.kind]} · Bản vẽ: ${dwgName(m.drawingId)} (trang ${m.page})`, `Phụ trách: ${m.owner || '—'}`,
-          `Hạn xử lý: ${m.due ? fmtISO(m.due) + (isOverdue(m) ? ' (quá hạn)' : '') : '—'}`, `Ghi nhận: ${fmtDate(m.created)}`].join('   ·   '), R, 8.2, CW - 34);
+        const tl = wrap(m.title || t("(Chưa có tiêu đề)"), B, 11.5, CW - 34 - 90 - 50, 3);
+        const meta = wrap([t("{0} · Bản vẽ: {1} (trang {2})", [t(KINDS[m.kind]), dwgName(m.drawingId), m.page]), t("Phụ trách: {0}", [m.owner || '—']),
+          t("Hạn xử lý: {0}", [m.due ? fmtISO(m.due) + (isOverdue(m) ? t(" (quá hạn)") : '') : '—']), t("Ghi nhận: {0}", [fmtDate(m.created)])].join('   ·   '), R, 8.2, CW - 34);
         const nl = m.note ? wrap(m.note, R, 9.5, CW - 34) : [];
-        const exs = CATS[m.cat].fields.filter(([k]) => (m.extra?.[k] || '').trim()).map(([k, l]) => ({ l, lines: wrap(m.extra[k], R, 9.2, CW - 34) }));
+        const exs = CATS[m.cat].fields.filter(([k]) => (m.extra?.[k] || '').trim()).map(([k, l]) => ({ l: t(l), lines: wrap(m.extra[k], R, 9.2, CW - 34) }));
         const cells = [];
-        if (cfg.snip) cells.push({ snip: true, label: `Vị trí trên bản vẽ (trang ${m.page})` });
-        m.photoIds.forEach((pid, k) => { const ph = S.photos.get(pid); if (ph) cells.push({ ph, label: `Ảnh ${k + 1} · ${fmtDate(ph.created)}` }); });
+        if (cfg.snip) cells.push({ snip: true, label: t("Vị trí trên bản vẽ (trang {0})", [m.page]) });
+        m.photoIds.forEach((pid, k) => { const ph = S.photos.get(pid); if (ph) cells.push({ ph, label: t("Ảnh {0} · {1}", [k + 1, fmtDate(ph.created)]) }); });
         const headH = 8 + tl.length * 15 + meta.length * 11 + 4 + nl.length * 13.5 + exs.reduce((a, e) => a + 13 + e.lines.length * 12.5, 0) + 8;
         const rowH = CELLH + CAP + 8;
         if (m.cat !== lastCat) {
           lastCat = m.cat; ensure(30 + headH + (cells.length ? rowH : 0));
           rect(M, y, CW, 20, '#e2e8f0'); sym(M + 11, y + 10, 6.5, m.cat, '');
-          text(`${CATS[m.cat].name.toUpperCase()} (${ms.filter(x => x.cat === m.cat).length})`, M + 24, y + 14, B, 9.5, DARK); y += 30;
+          text(`${t(CATS[m.cat].name).toUpperCase()} (${ms.filter(x => x.cat === m.cat).length})`, M + 24, y + 14, B, 9.5, DARK); y += 30;
         }
         ensure(headH + (cells.length ? rowH : 0));
         const y0 = y, pg0 = pg;
         sym(M + 12, y + 13, 11, m, String(m.n));
-        const pw = pill(st.label, W - M, y + 3, st.color, 8.5);
+        const pw = pill(t(st.label), W - M, y + 3, st.color, 8.5);
         textR(markCode(m), W - M - pw - 6, y + 13.5, B, 10, st.color);
         tl.forEach((l, k) => text(l, M + 32, y + 17 + k * 15, B, 11.5, DARK));
         y += 8 + tl.length * 15;
@@ -1862,7 +1887,7 @@ async function buildReport(cfg) {
         y += 8;
         if (y - y0 > 40 && pg === pg0) pg.drawRectangle({ x: M + 11, y: H - y + 6, width: 2, height: Math.max(0, y - y0 - 34), color: C(st.color) });
         for (let r = 0; r < cells.length; r += COLS) {
-          if (ensure(rowH)) { text(`${markCode(m)} ${m.title || ''} (tiếp)`.slice(0, 90), M, y + 9, B, 9, MUTED); y += 18; }
+          if (ensure(rowH)) { text(t("{0} {1} (tiếp)", [markCode(m), m.title || '']).slice(0, 90), M, y + 9, B, 9, MUTED); y += 18; }
           for (let j = 0; j < COLS && r + j < cells.length; j++) {
             const cell = cells[r + j], x = M + j * (CELLW + GAP);
             rect(x, y, CELLW, CELLH, SOFT);
@@ -1873,28 +1898,28 @@ async function buildReport(cfg) {
               const im = await out.embedJpg(new Uint8Array(await jpg.arrayBuffer()));
               const k = Math.min(CELLW / im.width, CELLH / im.height), iw = im.width * k, ih = im.height * k;
               pg.drawImage(im, { x: x + (CELLW - iw) / 2, y: H - y - CELLH + (CELLH - ih) / 2, width: iw, height: ih });
-            } catch (e) { console.warn(e); textC('(không đọc được ảnh)', x + CELLW / 2, y + CELLH / 2, R, 8, MUTED); }
+            } catch (e) { console.warn(e); textC(t("(không đọc được ảnh)"), x + CELLW / 2, y + CELLH / 2, R, 8, MUTED); }
             rect(x, y, CELLW, CELLH, null, LINE);
             text(wrap(cell.label, R, 7.5, CELLW, 1)[0], x + 1, y + CELLH + 10, R, 7.5, MUTED);
           }
           y += rowH;
         }
-        if (!cells.length) { text('(Không có ảnh)', M + 32, y + 6, R, 8.5, MUTED); y += 14; }
+        if (!cells.length) { text(t("(Không có ảnh)"), M + 32, y + 6, R, 8.5, MUTED); y += 14; }
         y += 4; hline(M, W - M, y, LINE, 0.8); y += 16;
       }
     }
 
     /* ---- page numbers / drawing strips ---- */
-    step('Đang đánh số trang…');
+    step(ui("Đang đánh số trang…"));
     const pages = out.getPages(), total = pages.length;
-    const leftLabel = [cfg.no ? 'Số ' + cfg.no : '', P.name].filter(Boolean).join(' · ');
+    const leftLabel = [cfg.no ? t("Số ") + cfg.no : '', P.name].filter(Boolean).join(' · ');
     pages.forEach((p, i) => {
       const kind = kinds[i] || 'r';
       if (kind === 'r') {
         p.drawLine({ start: { x: M, y: 34 }, end: { x: W - M, y: 34 }, thickness: 0.5, color: C(LINE) });
-        p.drawText(N(wrap(leftLabel, R, 7.5, CW - 80, 1)[0] || ''), { x: M, y: 22, size: 7.5, font: R, color: C(MUTED) });
-        const t = `Trang ${i + 1}/${total}`;
-        p.drawText(t, { x: W - M - tw(t, R, 8), y: 22, size: 8, font: R, color: C(MUTED) });
+        DT(p, N(wrap(leftLabel, R, 7.5, CW - 80, 1)[0] || ''), { x: M, y: 22, size: 7.5, font: R, color: C(MUTED) });
+        const pt = t("Trang {0}/{1}", [i + 1, total]);
+        DT(p, pt, { x: W - M - tw(pt, R, 8), y: 22, size: 8, font: R, color: C(MUTED) });
         return;
       }
       const rot = ((p.getRotation().angle % 360) + 360) % 360, b0 = p.getCropBox();
@@ -1906,41 +1931,39 @@ async function buildReport(cfg) {
       const toUser = (dx, dy) => rot === 90 ? [box.x + dy, box.y + dx] : rot === 180 ? [box.x + box.width - dx, box.y + dy]
         : rot === 270 ? [box.x + box.width - dy, box.y + box.height - dx] : [box.x + dx, box.y + box.height - dy];
       const mg = z * 0.9, base = strip / 2 + z * 0.36;
-      const label = N(`PHỤ LỤC 1 – ${kind.d.name} (trang ${kind.page})`);
+      const label = N(t("PHỤ LỤC 1 – {0} (trang {1})", [kind.d.name, kind.page]));
       const right = [];
-      kind.cats.forEach(c => right.push({ cat: c, t: CATS[c].name })); right.push({ t: `Trang ${i + 1}/${total}`, bold: true });
+      kind.cats.forEach(c => right.push({ cat: c, t: t(CATS[c].name) })); right.push({ t: t("Trang {0}/{1}", [i + 1, total]), bold: true });
       const rw = right.reduce((a, it) => a + tw(N(it.t), it.bold ? B : R, z * 0.9) + (it.cat ? z * 1.5 : 0) + z * 1.3, 0);
       const lmax = dW - 2 * mg - rw - z;
       let lt = label; while (lt.length > 8 && tw(lt, B, z) > lmax) lt = lt.slice(0, -2);
       if (lt !== label) lt = lt.replace(/\s*\S?$/, '') + '…';
       let [tx, ty] = toUser(mg, base);
-      p.drawText(lt, { x: tx, y: ty, size: z, font: B, color: C(DARK), rotate: degrees(rot) });
+      DT(p, lt, { x: tx, y: ty, size: z, font: B, color: C(DARK), rotate: degrees(rot) });
       let rx = dW - mg;
       for (let k = right.length - 1; k >= 0; k--) {
         const it = right[k], f = it.bold ? B : R, w = tw(N(it.t), f, z * 0.9);
         rx -= w; [tx, ty] = toUser(rx, base);
-        p.drawText(N(it.t), { x: tx, y: ty, size: z * 0.9, font: f, color: C(DARK), rotate: degrees(rot) });
+        DT(p, N(it.t), { x: tx, y: ty, size: z * 0.9, font: f, color: C(DARK), rotate: degrees(rot) });
         if (it.cat) { rx -= z * 0.85; const [cx, cy] = toUser(rx, strip / 2); pdfSymbol(p, cx, cy, z * 0.5, it.cat, '#475569', '', B, rot); rx -= z * 0.65; }
         rx -= z * 1.3;
       }
       const [l1x, l1y] = toUser(0, strip), [l2x, l2y] = toUser(dW, strip);
       p.drawLine({ start: { x: l1x, y: l1y }, end: { x: l2x, y: l2y }, thickness: z * 0.08, color: C(DARK) });
     });
-    out.setTitle(N(cfg.title)); out.setAuthor(N(P.author || P.company || '')); out.setSubject(N(P.name)); out.setCreator('Đánh dấu PDF');
-    step('Đang lưu file…');
+    out.setTitle(N(cfg.title)); out.setAuthor(N(P.author || P.company || '')); out.setSubject(N(P.name)); out.setCreator(t("Đánh dấu PDF"));
+    step(ui("Đang lưu file…"));
     const bytes = await out.save();
     unbusy();
     const dd = fmtISO(cfg.date).replace(/\//g, '-');
-    const fname = asciiName(`BaoCao_${cfg.no ? cfg.no + '_' : ''}${P.code || P.name}_${dd}.pdf`);
+    const fname = asciiName(`${getLang() === 'vi' ? 'BaoCao' : 'Report'}_${cfg.no ? cfg.no + '_' : ''}${P.code || P.name}_${dd}.pdf`);
     const blob = new Blob([bytes], { type: 'application/pdf' });
     try { await DB.put('reports', { id: uid(), projectId: P.id, name: fname, title: N(cfg.title), no: cfg.no, count: ms.length, size: blob.size, created: Date.now(), blob }); }
     catch (e) { console.warn('save report', e); }
-    renderReports();
-    await deliverFile(blob, fname, 'Đã tạo báo cáo', 'Báo cáo được lưu trong mục <b>Báo cáo đã xuất</b> của dự án – có thể chia sẻ lại bất cứ lúc nào.');
-    return true;
+    return { blob, fname };
   } catch (e) {
     unbusy(); console.error(e);
-    modal({ title: 'Tạo báo cáo lỗi', html: esc(e.message || e) });
+    modal({ title: ui("Tạo báo cáo lỗi"), html: esc(e.message || e) });
     return false;
   } finally {
     docs.forEach(d => { try { d.destroy(); } catch {} });
@@ -1949,18 +1972,18 @@ async function buildReport(cfg) {
 
 /* ======================= CSV / BACKUP / RESTORE ======================= */
 function exportCSV() {
-  if (!S.markers.length) { toast('Chưa có điểm ghi nhận nào'); return; }
+  if (!S.markers.length) { toast(t("Chưa có điểm ghi nhận nào")); return; }
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const extraCols = [['proposal', 'Đề xuất xử lý'], ['reply', 'Phản hồi của các bên'], ['basis', 'Căn cứ'], ['fix', 'Yêu cầu / biện pháp khắc phục']];
-  const rows = [['Mã', 'Loại', 'Kiểu', 'Bản vẽ', 'Trang', 'Tiêu đề', 'Ghi chú', ...extraCols.map(e => e[1]), 'Phụ trách', 'Hạn xử lý', 'Trạng thái', 'Quá hạn', 'Số ảnh', 'Ngày tạo', 'Cập nhật'].map(q).join(',')];
-  sortMarks(S.markers).forEach(m => rows.push([markCode(m), CATS[m.cat].name, KINDS[m.kind], dwgName(m.drawingId), m.page, m.title, m.note,
+  const extraCols = [['proposal', t("Đề xuất xử lý")], ['reply', t("Phản hồi của các bên")], ['basis', t("Căn cứ")], ['fix', t("Yêu cầu / biện pháp khắc phục")]];
+  const rows = [[t("Mã"), t("Loại"), t("Kiểu"), t("Bản vẽ"), t("Trang"), t("Tiêu đề"), t("Ghi chú"), ...extraCols.map(e => t(e[1])), t("Phụ trách"), t("Hạn xử lý"), t("Trạng thái"), t("Quá hạn"), t("Số ảnh"), t("Ngày tạo"), t("Cập nhật")].map(q).join(',')];
+  sortMarks(S.markers).forEach(m => rows.push([markCode(m), t(CATS[m.cat].name), t(KINDS[m.kind]), dwgName(m.drawingId), m.page, m.title, m.note,
     ...extraCols.map(([k]) => CATS[m.cat].fields.some(f => f[0] === k) ? m.extra?.[k] || '' : ''),
-    m.owner || '', fmtISO(m.due), stOf(m).label, isOverdue(m) ? 'x' : '', m.photoIds.length, fmtDate(m.created), fmtDate(m.updated)].map(q).join(',')));
-  deliverFile(new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv' }), `${safeName(S.project.code || S.project.name)}_danh-sach.csv`, 'Danh sách (mở bằng Excel)');
+    m.owner || '', fmtISO(m.due), t(stOf(m).label), isOverdue(m) ? 'x' : '', m.photoIds.length, fmtDate(m.created), fmtDate(m.updated)].map(q).join(',')));
+  deliverFile(new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv' }), `${safeName(S.project.code || S.project.name)}_danh-sach.csv`, t("Danh sách (mở bằng Excel)"));
 }
 /* .pmk v2 = "PMK2" + uint32 manifest length + manifest JSON + binary blobs */
 async function backupProject(pid) {
-  busy('Đang tạo file sao lưu…');
+  busy(t("Đang tạo file sao lưu…"));
   try {
     const p = await DB.get('projects', pid);
     const dws = await DB.byIdx('drawings', 'projectId', pid);
@@ -1973,14 +1996,14 @@ async function backupProject(pid) {
     const json = new TextEncoder().encode(JSON.stringify(man));
     const head = new Uint8Array(8); head.set([80, 77, 75, 50]); new DataView(head.buffer).setUint32(4, json.length, true);
     unbusy();
-    await deliverFile(new Blob([head, json, ...parts], { type: 'application/octet-stream' }), `${safeName(p.code || p.name)}.pmk`, 'File sao lưu dự án');
-  } catch (e) { unbusy(); console.error(e); modal({ title: 'Sao lưu lỗi', html: esc(e.message || e) }); }
+    await deliverFile(new Blob([head, json, ...parts], { type: 'application/octet-stream' }), `${safeName(p.code || p.name)}.pmk`, t("File sao lưu dự án"));
+  } catch (e) { unbusy(); console.error(e); modal({ title: t("Sao lưu lỗi"), html: esc(e.message || e) }); }
 }
 async function restoreBackup(file) {
-  busy('Đang khôi phục…');
+  busy(t("Đang khôi phục…"));
   try {
     const head = new Uint8Array(await file.slice(0, 8).arrayBuffer()), magic = String.fromCharCode(...head.slice(0, 4));
-    if (magic !== 'PMK1' && magic !== 'PMK2') throw new Error('Đây không phải file sao lưu .pmk của app');
+    if (magic !== 'PMK1' && magic !== 'PMK2') throw new Error(t("Đây không phải file sao lưu .pmk của app"));
     const len = new DataView(head.buffer).getUint32(4, true);
     let man = JSON.parse(new TextDecoder().decode(await file.slice(8, 8 + len).arrayBuffer()));
     const base = 8 + len;
@@ -1994,30 +2017,30 @@ async function restoreBackup(file) {
     const pid = uid(), now = Date.now();
     const dMap = new Map(man.drawings.map(d => [d.id, uid()])), mkMap = new Map(man.markers.map(m => [m.id, uid()])), phMap = new Map(man.photos.map(ph => [ph.id, uid()]));
     for (const d of man.drawings) {
-      $('#busyText').textContent = `Đang khôi phục bản vẽ ${d.name}…`;
+      $('#busyText').textContent = t("Đang khôi phục bản vẽ {0}…", [d.name]);
       await DB.put('pdfs', { id: dMap.get(d.id), blob: await readBlob(d.pdf) });
       await DB.put('drawings', { ...d, id: dMap.get(d.id), projectId: pid, thumb: await readBlob(d.thumb), pdf: undefined });
     }
     for (const [i, ph] of man.photos.entries()) {
-      if (i % 10 === 0) $('#busyText').textContent = `Đang khôi phục ảnh ${i + 1}/${man.photos.length}…`;
+      if (i % 10 === 0) $('#busyText').textContent = t("Đang khôi phục ảnh {0}/{1}…", [i + 1, man.photos.length]);
       await DB.put('photos', { ...ph, id: phMap.get(ph.id), projectId: pid, markerId: mkMap.get(ph.markerId), blob: await readBlob(ph.blob), thumb: await readBlob(ph.thumb) });
     }
     for (const m of man.markers) await DB.put('markers', { ...m, id: mkMap.get(m.id), projectId: pid, drawingId: dMap.get(m.drawingId), photoIds: (m.photoIds || []).map(x => phMap.get(x)).filter(Boolean) });
     const exists = (await DB.all('projects')).some(x => x.name === man.project.name);
-    await DB.put('projects', { ...man.project, id: pid, name: man.project.name + (exists ? ' (khôi phục)' : ''), updated: now });
-    requestPersist(); unbusy(); toast(`Đã khôi phục “${man.project.name}”`); renderHome();
-  } catch (e) { unbusy(); console.error(e); modal({ title: 'Khôi phục lỗi', html: esc(e.message || e) }); }
+    await DB.put('projects', { ...man.project, id: pid, name: man.project.name + (exists ? t(" (khôi phục)") : ''), updated: now });
+    requestPersist(); unbusy(); toast(t("Đã khôi phục “{0}”", [man.project.name])); renderHome();
+  } catch (e) { unbusy(); console.error(e); modal({ title: t("Khôi phục lỗi"), html: esc(e.message || e) }); }
 }
 $('#inBackup').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) restoreBackup(f); });
 
 async function renumber() {
-  if (!await confirmBox('Đánh số lại?', 'Mỗi loại sẽ được đánh số liên tục 01, 02… trong toàn dự án, theo thứ tự bản vẽ, trang, từ trên xuống dưới.', 'Đánh số lại')) return;
+  if (!await confirmBox(t("Đánh số lại?"), t("Mỗi loại sẽ được đánh số liên tục 01, 02… trong toàn dự án, theo thứ tự bản vẽ, trang, từ trên xuống dưới."), t("Đánh số lại"))) return;
   const dOrder = id => S.drawings.findIndex(d => d.id === id);
   for (const c of CAT_KEYS) {
     const ms = S.markers.filter(m => m.cat === c).sort((a, b) => dOrder(a.drawingId) - dOrder(b.drawingId) || a.page - b.page || (b.y - a.y) || (a.x - b.x));
     for (let i = 0; i < ms.length; i++) if (ms[i].n !== i + 1) { ms[i].n = i + 1; await saveMarker(ms[i]); }
   }
-  renderMarks(); toast('Đã đánh số lại');
+  renderMarks(); toast(t("Đã đánh số lại"));
 }
 
 /* ======================= WIRING ======================= */
@@ -2028,42 +2051,46 @@ $('#btnFit').onclick = () => animateView(fitTarget());
 $('#btnThumbs').onclick = () => {
   S.showThumbs = !S.showThumbs; try { localStorage.setItem('pm.thumbs', S.showThumbs ? '1' : '0'); } catch {}
   $('#btnThumbs').classList.toggle('on', S.showThumbs); renderMarks();
-  toast(S.showThumbs ? 'Hiện ảnh thu nhỏ trên bản vẽ' : 'Ẩn ảnh thu nhỏ');
+  toast(S.showThumbs ? t("Hiện ảnh thu nhỏ trên bản vẽ") : t("Ẩn ảnh thu nhỏ"));
 };
 $('#btnList').onclick = () => { if (S.cur) flushSheet(); openList(); };
 $('#pgPrev').onclick = () => gotoPage(S.pageNum - 1);
 $('#pgNext').onclick = () => gotoPage(S.pageNum + 1);
 $('#pgLabel').onclick = async () => {
   if (S.doc.numPages < 2) return;
-  const n = parseInt(await promptBox(`Đến trang (1–${S.doc.numPages})`, String(S.pageNum)), 10); if (n) gotoPage(n);
+  const n = parseInt(await promptBox(t("Đến trang (1–{0})", [S.doc.numPages]), String(S.pageNum)), 10); if (n) gotoPage(n);
 };
 $('#vTitleBox').onclick = () => renameDrawing(S.drawing);
 $('#btnViewMenu').onclick = () => menu([
-  { label: 'Lập báo cáo PDF', icon: 'i-export', action: () => openReport([S.drawing.id]) },
-  { label: 'Xuất bản vẽ đã đánh dấu', icon: 'i-doc', action: exportDrawingDialog },
-  { label: 'Bộ lọc', icon: 'i-filter', action: openFilter },
-  { label: 'Xuất danh sách (Excel/CSV)', icon: 'i-list', action: exportCSV },
-  { label: 'Tải ảnh hiện trường', icon: 'i-dl', action: () => photosDialog(true) },
+  { label: t("Lập báo cáo PDF"), icon: 'i-export', action: () => openReport([S.drawing.id]) },
+  { label: t("Xuất bản vẽ đã đánh dấu"), icon: 'i-doc', action: exportDrawingDialog },
+  { label: t("Bộ lọc"), icon: 'i-filter', action: openFilter },
+  { label: t("Xuất danh sách (Excel/CSV)"), icon: 'i-list', action: exportCSV },
+  { label: t("Tải ảnh hiện trường"), icon: 'i-dl', action: () => photosDialog(true) },
   '-',
-  { label: 'Đánh số lại các điểm', icon: 'i-pin', action: renumber },
-  { label: 'Đổi tên bản vẽ', icon: 'i-edit', action: () => renameDrawing(S.drawing) },
-  { label: 'Hướng dẫn sử dụng', icon: 'i-search', action: showHelp },
+  { label: t("Đánh số lại các điểm"), icon: 'i-pin', action: renumber },
+  { label: t("Đổi tên bản vẽ"), icon: 'i-edit', action: () => renameDrawing(S.drawing) },
+  { label: t("Hướng dẫn sử dụng"), icon: 'i-search', action: showHelp },
 ]);
+function langDialog() {
+  modal({ title: 'Ngôn ngữ · Language · 语言', cls: 'lang-dlg',
+    html: `<div class="lang-list">${Object.entries(LANGS).map(([k, l]) => `<button class="lang-opt ${getLang() === k ? 'on' : ''}" data-l="${k}"><b>${l}</b>${getLang() === k ? '<svg><use href="#i-check"/></svg>' : ''}</button>`).join('')}</div>
+      <p class="lang-note">${esc(t("Chọn ngôn ngữ hiển thị của app. App sẽ tải lại để áp dụng."))}<br>${esc(t("Nội dung anh/chị tự nhập (tiêu đề, ghi chú…) giữ nguyên như đã gõ."))}</p>`,
+    buttons: [{ label: t("Đóng"), value: false }],
+    onOpen: (box, finish) => box.querySelectorAll('.lang-opt').forEach(b => b.onclick = () => { finish(false); if (b.dataset.l !== getLang()) saveLang(b.dataset.l); }) });
+}
+$('#btnLang').onclick = langDialog;
+// Chinese UI: fetch the Chinese report fonts in the background so reports also work offline later
+if (getLang() === 'zh') setTimeout(() => ['NotoSansSC-Regular.ttf', 'NotoSansSC-Bold.ttf'].forEach(f => fetch(f).catch(() => {})), 8000);
+$('#langCode').textContent = { vi: 'VI', en: 'EN', zh: '中文' }[getLang()];
 $('#btnHomeMenu').onclick = () => menu([
-  { label: 'Khôi phục từ file sao lưu (.pmk)', icon: 'i-export', action: () => $('#inBackup').click() },
-  { label: 'Cài app lên màn hình chính', icon: 'i-plus', action: showInstallHelp },
-  { label: 'Hướng dẫn sử dụng', icon: 'i-search', action: showHelp },
+  { label: t("Ngôn ngữ") + ' · Language · 语言', icon: 'i-globe', action: langDialog },
+  { label: t("Khôi phục từ file sao lưu (.pmk)"), icon: 'i-export', action: () => $('#inBackup').click() },
+  { label: t("Cài app lên màn hình chính"), icon: 'i-plus', action: showInstallHelp },
+  { label: t("Hướng dẫn sử dụng"), icon: 'i-search', action: showHelp },
 ]);
 function showHelp() {
-  modal({ title: 'Hướng dẫn nhanh', html: `<ol>
-    <li>Tạo <b>dự án</b> và khai báo: mã dự án, chủ đầu tư, đơn vị lập, logo, các bên ký. Mỗi dự án dùng thông tin riêng.</li>
-    <li><b>Thêm bản vẽ PDF</b> vào dự án (chọn được nhiều file một lúc).</li>
-    <li>Trong bản vẽ bấm <b>Đánh dấu</b> → chọn <b>loại</b> (vướng mắc, phát sinh, thay đổi…) và <b>kiểu</b>: điểm, vùng, vùng mây hoặc mũi tên → chạm/kéo trên bản vẽ.</li>
-    <li>Mỗi loại có <b>ký hiệu riêng</b>, màu thể hiện <b>trạng thái</b>. Vướng mắc và Phát sinh có quy trình trạng thái riêng.</li>
-    <li>Nhập tiêu đề, ghi chú, phụ trách, hạn xử lý; chụp hoặc chọn ảnh hiện trường.</li>
-    <li><b>Bộ lọc</b> theo loại, trạng thái, phụ trách, quá hạn – áp dụng cho bản vẽ và danh sách.</li>
-    <li><b>Lập báo cáo PDF</b>: chọn loại, bản vẽ, trạng thái → bìa, bảng tổng hợp, ký xác nhận, phụ lục bản vẽ và ảnh. Số báo cáo tự tăng.</li>
-    <li><b>Sao lưu .pmk</b> để chuyển dự án sang máy khác hoặc gửi đồng nghiệp.</li></ol>` });
+  modal({ title: t("Hướng dẫn nhanh"), html: t("<ol>\n    <li>Tạo <b>dự án</b> và khai báo: mã dự án, chủ đầu tư, đơn vị lập, logo, các bên ký. Mỗi dự án dùng thông tin riêng.</li>\n    <li><b>Thêm bản vẽ PDF</b> vào dự án (chọn được nhiều file một lúc).</li>\n    <li>Trong bản vẽ bấm <b>Đánh dấu</b> → chọn <b>loại</b> (vướng mắc, phát sinh, thay đổi…) và <b>kiểu</b>: điểm, vùng, vùng mây hoặc mũi tên → chạm/kéo trên bản vẽ.</li>\n    <li>Mỗi loại có <b>ký hiệu riêng</b>, màu thể hiện <b>trạng thái</b>. Vướng mắc và Phát sinh có quy trình trạng thái riêng.</li>\n    <li>Nhập tiêu đề, ghi chú, phụ trách, hạn xử lý; chụp hoặc chọn ảnh hiện trường.</li>\n    <li><b>Bộ lọc</b> theo loại, trạng thái, phụ trách, quá hạn – áp dụng cho bản vẽ và danh sách.</li>\n    <li><b>Lập báo cáo PDF</b>: chọn loại, bản vẽ, trạng thái → bìa, bảng tổng hợp, ký xác nhận, phụ lục bản vẽ và ảnh. Số báo cáo tự tăng.</li>\n    <li><b>Sao lưu .pmk</b> để chuyển dự án sang máy khác hoặc gửi đồng nghiệp.</li></ol>") });
 }
 let deferredInstall = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; renderInstallBox(); });
@@ -2073,16 +2100,14 @@ function renderInstallBox() {
   const box = $('#installBox');
   if (isStandalone()) { box.hidden = true; return; }
   if (deferredInstall) {
-    box.innerHTML = '<p>Cài app lên điện thoại để mở nhanh và dùng khi không có mạng.</p><button class="btn primary">Cài đặt</button>';
+    box.innerHTML = t("<p>Cài app lên điện thoại để mở nhanh và dùng khi không có mạng.</p><button class=\"btn primary\">Cài đặt</button>");
     box.querySelector('button').onclick = async () => { deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; box.hidden = true; };
     box.hidden = false;
-  } else if (isIOS()) { box.innerHTML = '<p>Cài app: bấm nút <b>Chia sẻ</b> của Safari → <b>Thêm vào MH chính</b>.</p>'; box.hidden = false; }
+  } else if (isIOS()) { box.innerHTML = t("<p>Cài app: bấm nút <b>Chia sẻ</b> của Safari → <b>Thêm vào MH chính</b>.</p>"); box.hidden = false; }
 }
 function showInstallHelp() {
   if (deferredInstall) { deferredInstall.prompt(); return; }
-  modal({ title: 'Cài app lên điện thoại', html: isStandalone() ? '<p>App đã được cài và đang chạy ở chế độ ứng dụng.</p>' : `
-    <p><b>Android (Chrome):</b> menu ⋮ của Chrome → <b>Thêm vào màn hình chính</b> / <b>Cài đặt ứng dụng</b>.</p>
-    <p><b>iPhone (Safari):</b> nút <b>Chia sẻ</b> → <b>Thêm vào MH chính</b> → <b>Thêm</b>.</p>` });
+  modal({ title: t("Cài app lên điện thoại"), html: isStandalone() ? t("<p>App đã được cài và đang chạy ở chế độ ứng dụng.</p>") : t("\n    <p><b>Android (Chrome):</b> menu ⋮ của Chrome → <b>Thêm vào màn hình chính</b> / <b>Cài đặt ứng dụng</b>.</p>\n    <p><b>iPhone (Safari):</b> nút <b>Chia sẻ</b> → <b>Thêm vào MH chính</b> → <b>Thêm</b>.</p>") });
 }
 let lastW = window.innerWidth;
 window.addEventListener('resize', () => {
@@ -2094,7 +2119,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
       const nw = reg.installing;
-      nw?.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) toast('Đã có bản cập nhật – đóng và mở lại app để dùng bản mới', 5000); });
+      nw?.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) toast(t("Đã có bản cập nhật – đóng và mở lại app để dùng bản mới"), 5000); });
     });
   }).catch(e => console.warn('SW', e));
 }
@@ -2102,7 +2127,7 @@ if ('launchQueue' in window) {
   window.launchQueue.setConsumer(async p => {
     if (!p.files?.length) return;
     const files = await Promise.all(p.files.map(f => f.getFile()));
-    if (S.project) addDrawings(files); else toast('Hãy mở một dự án rồi thêm bản vẽ');
+    if (S.project) addDrawings(files); else toast(t("Hãy mở một dự án rồi thêm bản vẽ"));
   });
 }
 history.replaceState({ layer: 'home', n: 0 }, '');
