@@ -38,6 +38,7 @@
   <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
   <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
   <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3z" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-flip" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12.5a3 3 0 015.2-2M15 13.5a3 3 0 01-5.2 2M14.6 8.6v2h-2M9.4 17.4v-2h2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
   <symbol id="k-point" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 13v6" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="20.5" r="1.6" fill="currentColor"/></symbol>
@@ -279,6 +280,21 @@
     <div id="mBody" class="modal-body"></div>
     <div id="mActions" class="modal-actions"></div>
   </div>
+</div>
+<div id="camView" class="cam" hidden>
+  <video id="camVideo" playsinline muted autoplay></video>
+  <div id="camFlash" class="cam-flash"></div>
+  <div class="cam-top">
+    <button class="cam-ic" id="camClose" aria-label="Đóng"><svg><use href="#i-close"/></svg></button>
+    <div class="cam-code" id="camCode"></div>
+    <button class="cam-ic" id="camFlip" aria-label="Đổi camera trước/sau"><svg><use href="#i-flip"/></svg></button>
+  </div>
+  <div class="cam-bottom">
+    <div class="cam-side"><div class="cam-thumb" id="camThumb" hidden><span id="camCount"></span></div></div>
+    <button class="cam-shot" id="camShot" aria-label="Chụp ảnh"><i></i></button>
+    <div class="cam-side"><button class="cam-done" id="camDone">Xong</button></div>
+  </div>
+  <button class="cam-sys" id="camSystem">Dùng ứng dụng camera của máy</button>
 </div>
 <div id="toast" class="toast"></div>
 <div id="busy" class="busy" hidden><div class="busy-box"><div class="spinner"></div><div id="busyText">Đang xử lý…</div></div></div>

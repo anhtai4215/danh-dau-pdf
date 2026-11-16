@@ -5,7 +5,7 @@ import { t, tl, getLang, setLang, saveLang, LANGS, translateDOM } from './i18n.j
 translateDOM(); document.title = t("Đánh dấu PDF");
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.js', import.meta.url).href;
 
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.4.1';
 const $ = (s, r = document) => r.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -1134,25 +1134,110 @@ $('#shDelete').onclick = async () => {
   await DB.del('markers', m.id);
   touchProject(); updateCounts(); S.cur = null; closeLayer('sheet'); renderMarks(); toast(t("Đã xóa {0}", [markCode(m)]));
 };
-$('#btnCamera').onclick = () => $('#inCamera').click();
-$('#btnGallery').onclick = () => $('#inGallery').click();
+$('#btnCamera').onclick = () => openCamera();
+$('#btnGallery').onclick = () => { photoTarget = S.cur?.id || null; $('#inGallery').click(); };
+/* The item that photos go to is remembered when the picker/camera opens, so a photo still lands on the right item
+   even if the card was closed in between. */
+let photoTarget = null;
+const targetMarker = () => S.markers.find(x => x.id === photoTarget) || S.cur;
+async function savePhoto(m, f) {
+  const big = await compressImage(f, 1920, 0.82), th = await compressImage(big.blob, 360, 0.72);
+  const ph = { id: uid(), projectId: m.projectId, markerId: m.id, blob: big.blob, thumb: th.blob, w: big.w, h: big.h, name: f.name || '', created: f.lastModified || Date.now() };
+  await DB.put('photos', ph); S.photos.set(ph.id, ph); m.photoIds.push(ph.id);
+  await saveMarker(m);
+  return ph;
+}
 async function addPhotos(files) {
-  const m = S.cur; if (!m || !files.length) return;
+  const m = targetMarker(); if (!m || !files.length) return;
   busy(t("Đang lưu {0} ảnh…", [files.length]));
   try {
     let i = 0;
-    for (const f of files) {
-      i++; $('#busyText').textContent = t("Đang lưu ảnh {0}/{1}…", [i, files.length]);
-      const big = await compressImage(f, 1920, 0.82), th = await compressImage(big.blob, 360, 0.72);
-      const ph = { id: uid(), projectId: S.project.id, markerId: m.id, blob: big.blob, thumb: th.blob, w: big.w, h: big.h, name: f.name || '', created: f.lastModified || Date.now() };
-      await DB.put('photos', ph); S.photos.set(ph.id, ph); m.photoIds.push(ph.id);
-    }
-    await saveMarker(m); renderSheetPhotos(); renderMarks();
+    for (const f of files) { i++; $('#busyText').textContent = t("Đang lưu ảnh {0}/{1}…", [i, files.length]); await savePhoto(m, f); }
+    if (S.cur === m) renderSheetPhotos(); renderMarks();
     toast(t("Đã thêm {0} ảnh vào {1}", [files.length, markCode(m)]));
   } catch (e) { console.error(e); modal({ title: t("Không lưu được ảnh"), html: esc(e.message || e) }); }
   finally { unbusy(); }
 }
-['#inCamera', '#inGallery'].forEach(sel => $(sel).addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; addPhotos(fs); }));
+['#inCamera', '#inGallery'].forEach(sel => $(sel).addEventListener('change', e => {
+  const fs = [...e.target.files]; e.target.value = '';
+  if (!fs.length) { if (sel === '#inCamera') toast(t("Không nhận được ảnh từ camera – hãy thử lại hoặc chọn ảnh từ Thư viện"), 4500); return; }
+  addPhotos(fs);
+}));
+
+/* ---- In-app camera: the page never leaves the app, so Android cannot close it while the camera is open
+   (which used to lose the photo just taken). Falls back to the phone's camera app if not available. ---- */
+const CAM = { stream: null, track: null, facing: 'environment', saving: Promise.resolve(), n: 0, busy: false };
+async function openCamera() {
+  const m = S.cur; if (!m || CAM.opening) return;
+  CAM.opening = true; try { await openCamera0(m); } finally { CAM.opening = false; }
+}
+async function openCamera0(m) {
+  photoTarget = m.id;
+  if (!navigator.mediaDevices?.getUserMedia) { $('#inCamera').click(); return; }
+  CAM.n = 0; CAM.saving = Promise.resolve();
+  $('#camCount').textContent = ''; $('#camThumb').style.backgroundImage = ''; $('#camThumb').hidden = true;
+  $('#camCode').textContent = markCode(m) + (m.title ? ' · ' + m.title : '');
+  $('#camView').hidden = false;
+  pushLayer('camera', closeCameraNow);
+  if (!(await startStream())) {
+    closeLayer('camera');
+    toast(t("Không mở được camera trong app – chuyển sang ứng dụng camera của máy"), 4000);
+    setTimeout(() => $('#inCamera').click(), 350);
+  }
+}
+async function startStream() {
+  stopStream();
+  try {
+    CAM.stream = await navigator.mediaDevices.getUserMedia({ audio: false,
+      video: { facingMode: { ideal: CAM.facing }, width: { ideal: 2560 }, height: { ideal: 1920 } } });
+  } catch (e) { console.warn('camera', e); return false; }
+  CAM.track = CAM.stream.getVideoTracks()[0];
+  const v = $('#camVideo'); v.srcObject = CAM.stream;
+  try { await v.play(); } catch {}
+  $('#camVideo').classList.toggle('mirror', CAM.facing === 'user');
+  return true;
+}
+function stopStream() {
+  if (CAM.stream) CAM.stream.getTracks().forEach(tr => tr.stop());
+  CAM.stream = CAM.track = null; $('#camVideo').srcObject = null;
+}
+function closeCameraNow() {
+  stopStream(); $('#camView').hidden = true;
+  const m = targetMarker();
+  CAM.saving.then(() => { if (m && S.cur === m) renderSheetPhotos(); renderMarks(); if (CAM.n) toast(t("Đã thêm {0} ảnh vào {1}", [CAM.n, markCode(m)])); });
+}
+async function grabFrame() {
+  // Full-resolution still where supported (Chrome Android), otherwise a frame of the live video.
+  if (window.ImageCapture && CAM.track && CAM.facing === 'environment') {
+    try { const b = await new ImageCapture(CAM.track).takePhoto(); if (b && b.size) return b; } catch (e) { console.warn('takePhoto', e); }
+  }
+  const v = $('#camVideo'); if (!v.videoWidth) throw new Error(t("Camera chưa sẵn sàng"));
+  const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0);
+  return canvasToBlob(c, 'image/jpeg', 0.92);
+}
+async function shoot() {
+  if (CAM.busy || !CAM.stream) return; CAM.busy = true;
+  const m = targetMarker(); const fl = $('#camFlash');
+  fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
+  try {
+    const blob = await grabFrame(), now = Date.now();
+    const file = new File([blob], `IMG_${stamp(now)}.jpg`, { type: 'image/jpeg', lastModified: now });
+    $('#camThumb').style.backgroundImage = `url('${URL.createObjectURL(blob)}')`; $('#camThumb').hidden = false;
+    CAM.n++; $('#camCount').textContent = CAM.n;
+    CAM.saving = CAM.saving.then(() => savePhoto(m, file)).catch(e => { console.error(e); CAM.n--; $('#camCount').textContent = CAM.n || ''; toast(t("Không lưu được ảnh") + ': ' + (e.message || e), 4000); });
+  } catch (e) { console.error(e); toast(t("Không chụp được ảnh") + ': ' + (e.message || e), 4000); }
+  finally { CAM.busy = false; }
+}
+$('#camShot').onclick = shoot;
+$('#camClose').onclick = () => closeLayer('camera');
+$('#camDone').onclick = () => closeLayer('camera');
+$('#camFlip').onclick = async () => { CAM.facing = CAM.facing === 'environment' ? 'user' : 'environment'; if (!(await startStream())) toast(t("Không mở được camera")); };
+$('#camSystem').onclick = () => { closeLayer('camera'); setTimeout(() => $('#inCamera').click(), 350); };
+document.addEventListener('visibilitychange', () => {
+  if ($('#camView').hidden) return;
+  if (document.hidden) stopStream(); else startStream();
+});
 
 /* ======================= PHOTO DOWNLOAD ======================= */
 const stamp = t => { const d = new Date(t); return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}`; };

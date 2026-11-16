@@ -428,7 +428,14 @@ const D = { en: {
 "Trang": "Page",
 "Trang {0}/{1}": "Page {0}/{1}",
 "Xong": "Done",
-"tr.{0}": "p.{0}"
+"tr.{0}": "p.{0}",
+"Không nhận được ảnh từ camera – hãy thử lại hoặc chọn ảnh từ Thư viện": "No photo came back from the camera – try again or pick it from the Gallery",
+"Không mở được camera trong app – chuyển sang ứng dụng camera của máy": "Could not open the in-app camera – switching to the phone's camera app",
+"Camera chưa sẵn sàng": "Camera is not ready yet",
+"Không chụp được ảnh": "Could not take the photo",
+"Không mở được camera": "Could not open the camera",
+"Đổi camera trước/sau": "Switch front/back camera",
+"Dùng ứng dụng camera của máy": "Use the phone's camera app"
 }, zh: {
 "Hãy đóng các cửa sổ khác của app để cập nhật dữ liệu": "请关闭本应用的其他窗口以更新数据",
 "Giao dịch bị hủy (có thể do hết dung lượng)": "操作已取消（存储空间可能已满）",
@@ -857,7 +864,14 @@ const D = { en: {
 "Trang": "页码",
 "Trang {0}/{1}": "第 {0}/{1} 页",
 "Xong": "完成",
-"tr.{0}": "第{0}页"
+"tr.{0}": "第{0}页",
+"Không nhận được ảnh từ camera – hãy thử lại hoặc chọn ảnh từ Thư viện": "未从相机收到照片 – 请重试或从相册选择",
+"Không mở được camera trong app – chuyển sang ứng dụng camera của máy": "无法打开应用内相机 – 改用手机相机应用",
+"Camera chưa sẵn sàng": "相机尚未就绪",
+"Không chụp được ảnh": "无法拍照",
+"Không mở được camera": "无法打开相机",
+"Đổi camera trước/sau": "切换前/后摄像头",
+"Dùng ứng dụng camera của máy": "使用手机相机应用"
 } };
 const norm = l => (l === 'en' || l === 'zh') ? l : 'vi';
 function initial() {

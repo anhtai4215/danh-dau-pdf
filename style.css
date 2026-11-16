@@ -188,7 +188,7 @@ svg{width:22px;height:22px;flex:none}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
 .modal-actions .btn{min-width:90px}
 .toast{position:fixed;left:50%;bottom:calc(90px + var(--sab));transform:translate(-50%,20px);background:#0f172a;color:#fff;padding:11px 16px;border-radius:12px;
-  font-size:14px;opacity:0;pointer-events:none;transition:all .2s ease;z-index:70;max-width:90vw;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+  font-size:14px;opacity:0;pointer-events:none;transition:all .2s ease;z-index:90;max-width:90vw;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.3)}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .busy{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:80;display:flex;align-items:center;justify-content:center}
 .busy-box{background:#fff;border-radius:16px;padding:18px 22px;display:flex;align-items:center;gap:14px;font-weight:600;max-width:86vw}
@@ -340,3 +340,25 @@ svg{width:22px;height:22px;flex:none}
 .lang-opt.on{border-color:#2563eb;background:#eff6ff}
 .lang-opt svg{width:20px;height:20px;color:#2563eb}
 .lang-note{font-size:12.5px;color:#64748b;margin:12px 0 0;line-height:1.5}
+
+/* in-app camera */
+.cam{position:fixed;inset:0;z-index:80;background:#000;display:flex;flex-direction:column;color:#fff}
+.cam[hidden]{display:none}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam video.mirror{transform:scaleX(-1)}
+.cam-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+.cam-flash.go{animation:camflash .25s ease-out}
+@keyframes camflash{0%{opacity:.85}100%{opacity:0}}
+.cam-top{position:relative;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 12px 10px;background:linear-gradient(rgba(0,0,0,.55),transparent)}
+.cam-code{flex:1;min-width:0;text-align:center;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px #000}
+.cam-ic{width:44px;height:44px;border-radius:22px;display:grid;place-items:center;background:rgba(0,0,0,.35);color:#fff;border:0;flex:none}
+.cam-ic svg{width:24px;height:24px}
+.cam-bottom{position:absolute;left:0;right:0;bottom:calc(52px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-between;padding:0 26px}
+.cam-side{width:76px;display:flex;justify-content:center}
+.cam-shot{width:78px;height:78px;border-radius:50%;border:4px solid #fff;background:transparent;display:grid;place-items:center;padding:0}
+.cam-shot i{display:block;width:62px;height:62px;border-radius:50%;background:#fff;transition:transform .1s}
+.cam-shot:active i{transform:scale(.88)}
+.cam-thumb{width:58px;height:58px;border-radius:12px;border:2px solid #fff;background:#333 center/cover;position:relative}
+.cam-thumb span{position:absolute;top:-9px;right:-9px;min-width:24px;height:24px;border-radius:12px;background:#2563eb;font:700 13px/24px inherit;text-align:center;padding:0 5px}
+.cam-done{height:44px;padding:0 18px;border-radius:22px;border:0;background:#2563eb;color:#fff;font-weight:700;font-size:15px}
+.cam-sys{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom));background:rgba(0,0,0,.45);color:#e2e8f0;border:0;border-radius:16px;padding:7px 14px;font-size:12.5px;white-space:nowrap}
