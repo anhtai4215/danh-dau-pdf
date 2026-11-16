@@ -319,3 +319,14 @@ svg{width:22px;height:22px;flex:none}
 .sheet.compact .sheet-grip::after{background:var(--pri)}
 .toast{bottom:auto;top:calc(118px + var(--sat));transform:translate(-50%,-14px)}
 .toast.show{transform:translate(-50%,0)}
+.link-btn{display:inline-flex;align-items:center;gap:4px;color:var(--pri);font-weight:650;font-size:13.5px;padding:4px 6px;border-radius:8px}
+.link-btn svg{width:17px;height:17px}
+.link-btn:active{background:#e0ecff}
+.sec-label small{color:var(--muted);font-weight:500}
+.pv-acts{display:flex;gap:2px}
+.deliver .dl-photos{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.deliver .dl-photos span{width:54px;height:54px;border-radius:8px;background:#e2e8f0 center/cover no-repeat}
+.deliver .dl-photos b{font-size:14px;color:var(--muted);padding-left:4px}
+.modal-body label.ck input[type=radio]{width:20px;height:20px;accent-color:var(--pri);flex:none;margin-top:1px}
+.deliver .modal-actions{flex-direction:column-reverse;gap:8px}
+.deliver .modal-actions .btn{width:100%;flex:none;height:46px}

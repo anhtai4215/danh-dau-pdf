@@ -3,7 +3,7 @@
 import * as pdfjsLib from './pdf.min.js';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.js', import.meta.url).href;
 
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 const $ = (s, r = document) => r.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -291,12 +291,12 @@ async function deliverFile(blob, filename, title = 'File đã sẵn sàng', note
   const file = new File([blob], asciiName(filename), { type: blob.type || 'application/octet-stream' });
   const share = canShareFile(file), ios = isIOS(), iosApp = ios && isStandalone();
   const btns = [{ label: 'Đóng', value: 'close' }];
-  if (!iosApp) btns.push({ label: 'Lưu về máy', value: 'save', cls: share ? '' : 'primary' });
+  if (!iosApp || !share) btns.push({ label: 'Lưu về máy', value: 'save', cls: share ? '' : 'primary' });
   if (share) btns.push({ label: 'Chia sẻ…', value: 'share', cls: 'primary' });
   await modal({
     title, cls: 'deliver',
     html: `<div class="dl-file"><svg><use href="#i-doc"/></svg><div><b>${esc(file.name)}</b><small>${fmtSize(blob.size)}</small></div></div>
-      ${share ? `<p class="dl-tip"><b>Chia sẻ</b> để gửi thẳng sang Zalo, Email, Messenger, Google Drive, OneDrive…${ios ? ' hoặc chọn <b>“Lưu vào Tệp”</b> để lưu trên iPhone.' : ''}</p>` :
+      ${share ? `<p class="dl-tip"><b>Chia sẻ</b> để gửi thẳng sang Zalo, Email, Messenger, Google Drive, OneDrive…${ios ? (file.type.startsWith('image/') ? ' hoặc chọn <b>“Lưu hình ảnh”</b> để lưu vào thư viện Ảnh.' : ' hoặc chọn <b>“Lưu vào Tệp”</b> để lưu trên iPhone.') : ''}</p>` :
         `<p class="dl-tip">Thiết bị này không hỗ trợ chia sẻ trực tiếp – bấm <b>Lưu về máy</b> rồi gửi file từ thư mục Tải xuống.</p>`}
       ${note ? `<p class="dl-tip">${note}</p>` : ''}`,
     buttons: btns.map(b => ({ ...b, value: () => {
@@ -535,6 +535,7 @@ $('#pjMenu').onclick = () => menu([
   { label: 'Sửa thông tin dự án', icon: 'i-edit', action: () => openProjPanel(S.project) },
   { label: 'Lập báo cáo PDF', icon: 'i-export', action: () => openReport() },
   { label: 'Xuất danh sách (Excel/CSV)', icon: 'i-list', action: exportCSV },
+  { label: 'Tải ảnh hiện trường', icon: 'i-dl', action: () => photosDialog(false) },
   { label: 'Sao lưu dự án (.pmk)', icon: 'i-doc', action: () => backupProject(S.project.id) },
   { label: 'Đánh số lại các điểm', icon: 'i-pin', action: renumber },
   '-',
@@ -1019,7 +1020,8 @@ async function changeCat(c) {
 }
 function renderSheetPhotos() {
   const m = S.cur, g = $('#shPhotos'); g.innerHTML = '';
-  $('#shPhotoCount').textContent = m.photoIds.length ? `${m.photoIds.length} ảnh` : '';
+  $('#shPhotoCount').textContent = m.photoIds.length ? `(${m.photoIds.length})` : '';
+  $('#shPhotoDl').hidden = !m.photoIds.length;
   if (!m.photoIds.length) { g.innerHTML = '<div class="none">Chưa có ảnh. Chụp hoặc chọn ảnh hiện trường tại vị trí này.</div>'; return; }
   m.photoIds.forEach((pid, i) => {
     const ph = S.photos.get(pid); if (!ph) return;
@@ -1159,6 +1161,104 @@ async function addPhotos(files) {
 }
 ['#inCamera', '#inGallery'].forEach(sel => $(sel).addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; addPhotos(fs); }));
 
+/* ======================= PHOTO DOWNLOAD ======================= */
+const stamp = t => { const d = new Date(t); return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}`; };
+/** Photo files of the given marks, named <code>_<n>_<date>.jpg, in list order. */
+function photoItems(ms) {
+  const out = [];
+  for (const m of sortMarks(ms)) m.photoIds.forEach((pid, i) => {
+    const ph = S.photos.get(pid); if (!ph) return;
+    out.push({ m, ph, i, name: asciiName(`${markCode(m)}_${i + 1}_${stamp(ph.created)}.jpg`) });
+  });
+  return out;
+}
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+/** Minimal ZIP writer (stored, no compression – JPEGs do not shrink anyway). entries: [{name, blob}] */
+async function buildZip(entries, onStep) {
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  const d = new Date(), dt = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), dd = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  for (const [k, e] of entries.entries()) {
+    onStep && onStep(k + 1, entries.length);
+    const data = new Uint8Array(await e.blob.arrayBuffer()), crc = crc32(data), nm = enc.encode(e.name), sz = data.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, dt, true); lh.setUint16(12, dd, true); lh.setUint32(14, crc, true); lh.setUint32(18, sz, true); lh.setUint32(22, sz, true);
+    lh.setUint16(26, nm.length, true); lh.setUint16(28, 0, true);
+    parts.push(lh.buffer, nm, e.blob);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+    ch.setUint16(12, dt, true); ch.setUint16(14, dd, true); ch.setUint32(16, crc, true); ch.setUint32(20, sz, true); ch.setUint32(24, sz, true);
+    ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+    central.push(ch.buffer, nm);
+    off += 30 + nm.length + sz;
+  }
+  const csize = central.reduce((a, p) => a + (p.byteLength ?? p.length), 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+  end.setUint32(12, csize, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+}
+/** Offer a set of photos: share the images directly (→ “Lưu hình ảnh”, Zalo…) or one ZIP sorted into a folder per mark. */
+async function deliverPhotos(items, label, zipBase) {
+  if (!items.length) { toast('Không có ảnh nào để tải'); return; }
+  const files = items.map(it => new File([it.ph.blob], it.name, { type: 'image/jpeg' }));
+  const total = items.reduce((a, it) => a + it.ph.blob.size, 0), marks = new Set(items.map(it => it.m.id)).size;
+  let canShare = false; try { canShare = files.length <= 40 && !!navigator.canShare?.({ files }); } catch {}
+  const ios = isIOS();
+  const btns = [{ label: 'Đóng', value: 'close' }, { label: files.length > 1 ? 'Tải file ZIP' : 'Lưu về máy', value: 'zip', cls: canShare ? '' : 'primary' }];
+  if (canShare) btns.push({ label: ios ? 'Chia sẻ / Lưu vào Ảnh' : 'Chia sẻ ảnh…', value: 'share', cls: 'primary' });
+  const thumbs = items.slice(0, 8).map(it => `<span style="background-image:url('${blobURL('t' + it.ph.id, it.ph.thumb)}')"></span>`).join('');
+  const choice = await modal({
+    title: 'Tải ảnh hiện trường', cls: 'deliver',
+    html: `<div class="dl-photos">${thumbs}${items.length > 8 ? `<b>+${items.length - 8}</b>` : ''}</div>
+      <p class="dl-tip"><b>${items.length} ảnh</b> của ${marks} điểm · ${fmtSize(total)} · ${esc(label)}</p>
+      ${canShare ? `<p class="dl-tip"><b>${ios ? 'Chia sẻ / Lưu vào Ảnh' : 'Chia sẻ ảnh'}</b>: gửi thẳng sang Zalo, Email, Drive…${ios ? ' hoặc chọn <b>“Lưu hình ảnh”</b> để lưu vào thư viện Ảnh.' : ''}</p>` : ''}
+      ${files.length > 1 ? `<p class="dl-tip"><b>File ZIP</b>: tất cả ảnh trong một file, chia thư mục theo mã điểm, kèm danh sách ảnh (mở bằng Excel).</p>` : ''}
+      <p class="dl-tip" style="font-size:12.5px">Ảnh là bản đã lưu trong app (cạnh dài tối đa 1920 px). Ảnh gốc vẫn nằm trong thư viện ảnh của máy chụp.</p>`,
+    buttons: btns.map(b => ({ ...b, value: () => {
+      if (b.value === 'share') navigator.share({ files }).catch(e => { if (e.name !== 'AbortError') toast('Không chia sẻ được – hãy dùng nút tải'); });
+      return b.value; } })),
+  });
+  if (choice !== 'zip') return;
+  if (files.length === 1) { await saveFile(files[0]); return; }
+  busy('Đang đóng gói ảnh…');
+  try {
+    const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const folder = m => asciiName(`${markCode(m)}_${(m.title || CATS[m.cat].name).slice(0, 40)}`);
+    const csv = [['Mã', 'Loại', 'Tiêu đề', 'Bản vẽ', 'Trang', 'Trạng thái', 'Tên file', 'Thời điểm'].map(q).join(',')];
+    items.forEach(it => csv.push([markCode(it.m), CATS[it.m.cat].name, it.m.title, dwgName(it.m.drawingId), it.m.page, stOf(it.m).label, `${folder(it.m)}/${it.name}`, fmtDate(it.ph.created)].map(q).join(',')));
+    const entries = [{ name: 'danh-sach-anh.csv', blob: new Blob(['\ufeff' + csv.join('\r\n')], { type: 'text/csv' }) },
+      ...items.map(it => ({ name: `${folder(it.m)}/${it.name}`, blob: it.ph.blob }))];
+    const zip = await buildZip(entries, (k, n) => { $('#busyText').textContent = `Đang đóng gói ảnh ${k}/${n}…`; });
+    unbusy();
+    await deliverFile(zip, `${zipBase}_${stamp(Date.now()).slice(0, 8)}.zip`, 'File ảnh đã sẵn sàng',
+      'Giải nén để xem ảnh theo từng thư mục mã điểm; file <b>danh-sach-anh.csv</b> liệt kê ảnh nào thuộc điểm nào.');
+  } catch (e) { unbusy(); console.error(e); modal({ title: 'Đóng gói ảnh lỗi', html: esc(e.message || e) }); }
+}
+async function photosDialog(fromViewer) {
+  const projMs = S.markers.filter(m => m.photoIds.length);
+  if (!projMs.length) { toast('Dự án chưa có ảnh hiện trường nào'); return; }
+  const opts = [];
+  if (fromViewer && S.drawing) {
+    const dm = dwgMarkers().filter(m => m.photoIds.length);
+    if (filterActive()) opts.push({ k: 'filter', l: `Bản vẽ này – theo bộ lọc (${esc(filterSummary())})`, ms: dm.filter(passFilter) });
+    opts.push({ k: 'dwg', l: `Bản vẽ “${esc(S.drawing.name)}”`, ms: dm });
+  }
+  opts.push({ k: 'proj', l: `Toàn bộ dự án (${S.drawings.length} bản vẽ)`, ms: projMs });
+  const n = ms => ms.reduce((a, m) => a + m.photoIds.length, 0);
+  const pick = await modal({
+    title: 'Tải ảnh hiện trường',
+    html: opts.map((o, i) => `<label class="ck"><input type="radio" name="pScope" value="${i}" ${i === 0 ? 'checked' : ''}><span>${o.l}<br><small style="color:#64748b">${n(o.ms)} ảnh</small></span></label>`).join(''),
+    buttons: [{ label: 'Hủy', value: null }, { label: 'Tiếp tục', cls: 'primary', value: () => +document.querySelector('input[name="pScope"]:checked').value }],
+  });
+  if (pick == null) return;
+  const o = opts[pick];
+  const base = asciiName(`AnhHienTruong_${S.project.code || S.project.name}${o.k !== 'proj' ? '_' + S.drawing.name : ''}`);
+  deliverPhotos(photoItems(o.ms), o.k === 'proj' ? 'toàn dự án' : 'bản vẽ ' + S.drawing.name, base);
+}
+$('#shPhotoDl').onclick = () => { const m = S.cur; if (m) deliverPhotos(photoItems([m]), markCode(m) + (m.title ? ' – ' + m.title : ''), asciiName(`Anh_${markCode(m)}`)); };
+
 /* ======================= PHOTO VIEWER ======================= */
 const PV = { m: null, i: 0, z: 1, px: 0, py: 0 };
 function openPhotoViewer(m, i) {
@@ -1180,6 +1280,10 @@ function showPV() {
 function pvApply() { $('#pvImg').style.transform = `translate(${PV.px}px,${PV.py}px) scale(${PV.z})`; }
 $('#pvClose').onclick = () => closeLayer('photo');
 $('#pvPrev').onclick = () => { PV.i--; showPV(); };
+$('#pvDownload').onclick = () => {
+  const it = photoItems([PV.m]).find(x => x.ph.id === PV.m.photoIds[PV.i]); if (!it) return;
+  deliverFile(new Blob([it.ph.blob], { type: 'image/jpeg' }), it.name, 'Ảnh hiện trường');
+};
 $('#pvNext').onclick = () => { PV.i++; showPV(); };
 $('#pvDelete').onclick = async () => {
   if (!await confirmBox('Xóa ảnh này?', 'Ảnh sẽ bị xóa khỏi điểm ghi nhận.', 'Xóa', true)) return;
@@ -1939,6 +2043,7 @@ $('#btnViewMenu').onclick = () => menu([
   { label: 'Xuất bản vẽ đã đánh dấu', icon: 'i-doc', action: exportDrawingDialog },
   { label: 'Bộ lọc', icon: 'i-filter', action: openFilter },
   { label: 'Xuất danh sách (Excel/CSV)', icon: 'i-list', action: exportCSV },
+  { label: 'Tải ảnh hiện trường', icon: 'i-dl', action: () => photosDialog(true) },
   '-',
   { label: 'Đánh số lại các điểm', icon: 'i-pin', action: renumber },
   { label: 'Đổi tên bản vẽ', icon: 'i-edit', action: () => renameDrawing(S.drawing) },
