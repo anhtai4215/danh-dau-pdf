@@ -1,5 +1,5 @@
 /* Service worker: lưu toàn bộ app vào bộ nhớ đệm để chạy offline. Tăng VERSION khi cập nhật app. */
-const VERSION = 'pdfmark-v2.4.1';
+const VERSION = 'pdfmark-v2.5.0';
 const FONT_CACHE = 'pdfmark-fonts-1'; // big Chinese fonts: loaded on demand, kept across app updates
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './i18n.js', './manifest.webmanifest',

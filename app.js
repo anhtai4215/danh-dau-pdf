@@ -5,7 +5,7 @@ import { t, tl, getLang, setLang, saveLang, LANGS, translateDOM } from './i18n.j
 translateDOM(); document.title = t("Đánh dấu PDF");
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.js', import.meta.url).href;
 
-const APP_VERSION = '2.4.1';
+const APP_VERSION = '2.5.0';
 const $ = (s, r = document) => r.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -295,7 +295,7 @@ async function deliverFile(blob, filename, title = t("File đã sẵn sàng"), n
   const btns = [{ label: t("Đóng"), value: 'close' }];
   if (!iosApp || !share) btns.push({ label: t("Lưu về máy"), value: 'save', cls: share ? '' : 'primary' });
   if (share) btns.push({ label: t("Chia sẻ…"), value: 'share', cls: 'primary' });
-  await modal({
+  return modal({
     title, cls: 'deliver',
     html: `<div class="dl-file"><svg><use href="#i-doc"/></svg><div><b>${esc(file.name)}</b><small>${fmtSize(blob.size)}</small></div></div>
       ${share ? t("<p class=\"dl-tip\"><b>Chia sẻ</b> để gửi thẳng sang Zalo, Email, Messenger, Google Drive, OneDrive…{0}</p>", [ios ? (file.type.startsWith('image/') ? t(" hoặc chọn <b>“Lưu hình ảnh”</b> để lưu vào thư viện Ảnh.") : t(" hoặc chọn <b>“Lưu vào Tệp”</b> để lưu trên iPhone.")) : '']) :
@@ -352,6 +352,47 @@ const S = {
 try { S.showThumbs = localStorage.getItem('pm.thumbs') === '1'; const t = JSON.parse(localStorage.getItem('pm.tool') || 'null'); if (t && CATS[t.cat] && KINDS[t.kind]) S.tool = t; } catch {}
 const dwgName = id => S.drawings.find(d => d.id === id)?.name || '';
 
+/* ======================= DATA SAFETY: persistent storage + backup reminders ======================= */
+const DAY = 864e5;
+/** How much of a project is not in any backup yet. due = time to remind. */
+function backupState(p, markers) {
+  const since = p.lastBackup || 0;
+  const changed = markers.filter(m => (m.updated || m.created) > since);
+  if (!changed.length) return { due: false, changes: 0 };
+  const ref = p.lastBackup || Math.min(...changed.map(m => m.created || m.updated));
+  const days = Math.floor((Date.now() - ref) / DAY);
+  const due = (p.lastBackup ? (days >= 7 || changed.length >= 20) : (days >= 3 || changed.length >= 10)) && !((p.backupSnooze || 0) > Date.now());
+  return { due, changes: changed.length, days };
+}
+function backupText(p, st) {
+  return p.lastBackup ? t("{0} điểm mới/sửa chưa sao lưu · lần cuối {1}", [st.changes, fmtDate(p.lastBackup)]) : t("{0} điểm chưa từng được sao lưu", [st.changes]);
+}
+async function setProjectField(pid, patch) {
+  const p = await DB.get('projects', pid); if (!p) return;
+  Object.assign(p, patch); await DB.put('projects', p);
+  if (S.project?.id === pid) Object.assign(S.project, patch);
+}
+async function askPersist(explain = false) {
+  try {
+    if (!navigator.storage?.persist) return false;
+    if (await navigator.storage.persisted()) return true;
+    const ok = await navigator.storage.persist();
+    if (!ok && explain) modal({ title: t("Dữ liệu chưa được bảo vệ"),
+      html: t("Trình duyệt chưa đồng ý giữ dữ liệu lâu dài, nên khi máy đầy bộ nhớ dữ liệu app có thể bị xóa.<br><br>Để an toàn hơn:<br>• <b>Cài app vào màn hình chính</b> (menu ⋮ → Cài app) rồi mở app từ biểu tượng.<br>• <b>Sao lưu (.pmk)</b> định kỳ và gửi lên Drive/Zalo.") });
+    return ok;
+  } catch { return false; }
+}
+async function renderStorageInfo() {
+  const box = $('#storageInfo'); if (!box) return;
+  let used = '', prot = null;
+  try { const est = await navigator.storage?.estimate?.(); if (est) used = fmtSize(est.usage || 0); } catch {}
+  try { prot = navigator.storage?.persisted ? await navigator.storage.persisted() : null; } catch {}
+  box.innerHTML = esc(t("Đã dùng {0} bộ nhớ app · Phiên bản {1}", [used || '—', APP_VERSION])) +
+    (prot === true ? `<br><span class="prot ok">✓ ${esc(t("Dữ liệu được bảo vệ, không bị trình duyệt tự xóa"))}</span>` :
+     prot === false ? `<br><button class="prot warn" id="btnPersist">⚠ ${esc(t("Dữ liệu chưa được bảo vệ – bấm để xem cách khắc phục"))}</button>` : '');
+  const b = $('#btnPersist'); if (b) b.onclick = async () => { await askPersist(true); renderStorageInfo(); };
+}
+
 /* ======================= HOME (projects) ======================= */
 async function renderHome() {
   clearURLCache();
@@ -365,16 +406,18 @@ async function renderHome() {
     const open = mk.filter(m => !isClosed(m)).length, over = mk.filter(isOverdue).length;
     const el = document.createElement('div'); el.className = 'proj'; el.setAttribute('role', 'button');
     el.innerHTML = t("<div class=\"th\" style=\"background-image:url('{0}')\"></div>\n      <div class=\"info\"><div class=\"name\">{1}</div>\n        <div class=\"meta\">{2}{3} bản vẽ · {4} điểm</div>\n        <div class=\"dots\">{5}{6}<span class=\"dot\">{7}</span></div></div>\n      <button class=\"icon-btn dark more\" aria-label=\"Tùy chọn\"><svg><use href=\"#i-more\"/></svg></button>", [dws[0]?.thumb ? blobURL('dt' + dws[0].id, dws[0].thumb) : '', esc(p.name), p.code ? esc(p.code) + ' · ' : '', dws.length, mk.length, mk.length ? t("<span class=\"dot\"><i style=\"background:{0}\"></i>{1} chưa xong</span>", [open ? '#e5484d' : '#16a34a', open]) : '', over ? t("<span class=\"dot\" style=\"color:#dc2626\"><i style=\"background:#dc2626\"></i>{0} quá hạn</span>", [over]) : '', fmtDate(p.updated)]);
-    el.onclick = e => { if (e.target.closest('.more')) projectMenu(p); else openProject(p.id); };
+    const bk = backupState(p, mk);
+    if (bk.due) el.querySelector('.info').insertAdjacentHTML('beforeend', `<button class="bk-warn">⚠ ${esc(backupText(p, bk))} – ${esc(t("Sao lưu"))}</button>`);
+    el.onclick = e => { if (e.target.closest('.more')) projectMenu(p); else if (e.target.closest('.bk-warn')) backupProject(p.id); else openProject(p.id); };
     list.appendChild(el);
   }
-  try { const est = await navigator.storage?.estimate?.(); if (est) $('#storageInfo').textContent = t("Đã dùng {0} bộ nhớ app · Phiên bản {1}", [fmtSize(est.usage || 0), APP_VERSION]); } catch {}
+  renderStorageInfo();
 }
 function projectMenu(p) {
   menu([
     { label: t("Mở dự án"), icon: 'i-folder', action: () => openProject(p.id) },
     { label: t("Sửa thông tin dự án"), icon: 'i-edit', action: async () => { await openProject(p.id); openProjPanel(S.project); } },
-    { label: t("Sao lưu dự án (.pmk)"), icon: 'i-export', action: () => backupProject(p.id) },
+    { label: t("Sao lưu dự án (.pmk)") + (p.lastBackup ? ' · ' + fmtDate(p.lastBackup) : ''), icon: 'i-export', action: () => backupProject(p.id) },
     '-',
     { label: t("Xóa dự án"), icon: 'i-trash', danger: true, action: () => deleteProjectAsk(p) },
   ]);
@@ -466,6 +509,14 @@ function renderProject() {
     (!(p.owner || p.company || p.author) ? t("<div class=\"r\"><span style=\"min-width:0\">Chưa khai báo chủ đầu tư, đơn vị lập, logo…</span></div>") : '') +
     t("<button class=\"btn ghost edit\" id=\"pjEdit\"><svg><use href=\"#i-edit\"/></svg> Sửa thông tin dự án</button>");
   $('#pjEdit').onclick = () => openProjPanel(S.project);
+  const bk = backupState(p, S.markers), bb = $('#pjBackup');
+  bb.hidden = !bk.due;
+  if (bk.due) {
+    bb.innerHTML = `<div class="bk-txt"><b>⚠ ${esc(t("Nên sao lưu dự án"))}</b><span>${esc(backupText(p, bk))}. ${esc(t("Mất hoặc hỏng điện thoại là mất dữ liệu nếu chưa sao lưu."))}</span></div>
+      <div class="bk-act"><button class="btn ghost" id="bkLater">${esc(t("Để sau"))}</button><button class="btn primary" id="bkNow">${esc(t("Sao lưu ngay"))}</button></div>`;
+    $('#bkNow').onclick = () => backupProject(p.id);
+    $('#bkLater').onclick = async () => { await setProjectField(p.id, { backupSnooze: Date.now() + DAY }); renderProject(); };
+  }
   $('#pjStats').innerHTML = CAT_KEYS.map(c => {
     const ms = S.markers.filter(m => m.cat === c), open = ms.filter(m => !isClosed(m)).length;
     return `<div class="cat-stat ${ms.length ? '' : 'zero'}">${catIcon(c, ms.length ? (open ? '#e5484d' : '#16a34a') : '#94a3b8')}<div><b>${ms.length}</b> ${esc(t(CATS[c].name))}<small>${ms.length ? open + t(" chưa xong") : '—'}</small></div></div>`;
@@ -527,7 +578,7 @@ $('#pjReport').onclick = () => openReport();
 $('#pjMenu').onclick = () => menu([
   { label: t("Sửa thông tin dự án"), icon: 'i-edit', action: () => openProjPanel(S.project) },
   { label: t("Lập báo cáo PDF"), icon: 'i-export', action: () => openReport() },
-  { label: t("Xuất danh sách (Excel/CSV)"), icon: 'i-list', action: exportCSV },
+  { label: t("Xuất danh sách Excel (.xlsx)"), icon: 'i-list', action: exportXlsx },
   { label: t("Tải ảnh hiện trường"), icon: 'i-dl', action: () => photosDialog(false) },
   { label: t("Sao lưu dự án (.pmk)"), icon: 'i-doc', action: () => backupProject(S.project.id) },
   { label: t("Đánh số lại các điểm"), icon: 'i-pin', action: renumber },
@@ -922,6 +973,7 @@ async function createMark(geom) {
   const m = { id: uid(), projectId: S.project.id, drawingId: S.drawing.id, cat, n: nextNumber(cat), kind: geom.kind, page: S.pageNum,
     x: geom.x, y: geom.y, x2: geom.x2 ?? null, y2: geom.y2 ?? null, title: '', note: '', extra: {}, owner: '', due: '',
     status: flowOf(cat)[0], photoIds: [], created: now, updated: now };
+  requestPersist();
   S.markers.push(m);
   setAddMode(false);
   if (filterActive() && !passFilter(m)) { S.filter = { cats: [], st: 'all', owner: '', over: false }; updateFilterUI(); toast(t("Đã bỏ bộ lọc để hiện điểm mới")); }
@@ -1020,6 +1072,7 @@ function renderSheetPhotos() {
     const ph = S.photos.get(pid); if (!ph) return;
     const b = document.createElement('button');
     b.style.backgroundImage = `url('${blobURL('t' + pid, ph.thumb)}')`;
+    b.innerHTML = (ph.cap ? `<span class="cap-dot">${esc(t("Chú thích"))}</span>` : '') + (ph.orig ? '<span class="ed-dot">✎</span>' : '');
     b.onclick = () => openPhotoViewer(m, i);
     g.appendChild(b);
   });
@@ -1300,8 +1353,8 @@ async function deliverPhotos(items, label, zipBase) {
   try {
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const folder = m => asciiName(`${markCode(m)}_${(m.title || t(CATS[m.cat].name)).slice(0, 40)}`);
-    const csv = [[t("Mã"), t("Loại"), t("Tiêu đề"), t("Bản vẽ"), t("Trang"), t("Trạng thái"), t("Tên file"), t("Thời điểm")].map(q).join(',')];
-    items.forEach(it => csv.push([markCode(it.m), t(CATS[it.m.cat].name), it.m.title, dwgName(it.m.drawingId), it.m.page, t(stOf(it.m).label), `${folder(it.m)}/${it.name}`, fmtDate(it.ph.created)].map(q).join(',')));
+    const csv = [[t("Mã"), t("Loại"), t("Tiêu đề"), t("Bản vẽ"), t("Trang"), t("Trạng thái"), t("Tên file"), t("Thời điểm"), t("Chú thích")].map(q).join(',')];
+    items.forEach(it => csv.push([markCode(it.m), t(CATS[it.m.cat].name), it.m.title, dwgName(it.m.drawingId), it.m.page, t(stOf(it.m).label), `${folder(it.m)}/${it.name}`, fmtDate(it.ph.created), it.ph.cap || ''].map(q).join(',')));
     const entries = [{ name: 'danh-sach-anh.csv', blob: new Blob(['\ufeff' + csv.join('\r\n')], { type: 'text/csv' }) },
       ...items.map(it => ({ name: `${folder(it.m)}/${it.name}`, blob: it.ph.blob }))];
     const zip = await buildZip(entries, (k, n) => { $('#busyText').textContent = t("Đang đóng gói ảnh {0}/{1}…", [k, n]); });
@@ -1349,10 +1402,21 @@ function showPV() {
   $('#pvImg').src = blobURL('f' + ph.id, ph.blob);
   $('#pvCounter').textContent = `${markCode(PV.m)} · ${PV.i + 1}/${ids.length}`;
   $('#pvCaption').textContent = `${PV.m.title || markCode(PV.m)} · ${fmtDate(ph.created)}`;
+  $('#pvCapIn').value = ph.cap || '';
   $('#pvPrev').hidden = PV.i === 0; $('#pvNext').hidden = PV.i === ids.length - 1;
 }
 function pvApply() { $('#pvImg').style.transform = `translate(${PV.px}px,${PV.py}px) scale(${PV.z})`; }
 $('#pvClose').onclick = () => closeLayer('photo');
+async function savePvCaption() {
+  const ph = PV.m && S.photos.get(PV.m.photoIds[PV.i]); if (!ph) return;
+  const v = $('#pvCapIn').value.trim(); if ((ph.cap || '') === v) return;
+  ph.cap = v; await DB.put('photos', ph); await saveMarker(PV.m);
+  if (S.cur === PV.m) renderSheetPhotos();
+}
+$('#pvCapIn').addEventListener('change', savePvCaption);
+$('#pvCapIn').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
+['#pvPrev', '#pvNext', '#pvClose'].forEach(sel => $(sel).addEventListener('pointerdown', savePvCaption));
+$('#pvEdit').onclick = async () => { await savePvCaption(); const ph = S.photos.get(PV.m.photoIds[PV.i]); if (ph) openPhotoEditor(ph); };
 $('#pvPrev').onclick = () => { PV.i--; showPV(); };
 $('#pvDownload').onclick = () => {
   const it = photoItems([PV.m]).find(x => x.ph.id === PV.m.photoIds[PV.i]); if (!it) return;
@@ -1368,6 +1432,7 @@ $('#pvDelete').onclick = async () => {
 (() => {
   const st = $('#pvStage'), img = $('#pvImg'), pts = new Map(); let g = null, lastT = 0;
   st.addEventListener('pointerdown', e => {
+    if (document.activeElement === $('#pvCapIn')) $('#pvCapIn').blur();
     st.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); img.classList.add('drag');
     if (pts.size === 1) g = { t: 'pan', x: e.clientX, y: e.clientY, px: PV.px, py: PV.py };
     else if (pts.size === 2) { const [a, b] = [...pts.values()]; g = { t: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: PV.z }; }
@@ -1393,6 +1458,96 @@ $('#pvDelete').onclick = async () => {
   };
   st.addEventListener('pointerup', end); st.addEventListener('pointercancel', end);
 })();
+
+/* ======================= PHOTO MARKUP (circle / arrow / box / pen / text on a site photo) ======================= */
+const PE = { ph: null, img: null, shapes: [], tool: 'ellipse', color: '#ef4444', cur: null, useOrig: false };
+async function openPhotoEditor(ph) {
+  PE.ph = ph; PE.shapes = []; PE.cur = null; PE.useOrig = false;
+  try { PE.img = await loadImage(ph.blob); } catch (e) { toast(e.message); return; }
+  const c = $('#peCanvas'); c.width = PE.img.naturalWidth; c.height = PE.img.naturalHeight;
+  $('#peOrig').hidden = !ph.orig;
+  $('#photoEdit').hidden = false;
+  pushLayer('photoedit', () => { $('#photoEdit').hidden = true; PE.img = null; });
+  peDraw();
+}
+const peLW = () => Math.max(4, Math.round(Math.max(PE.img.naturalWidth, PE.img.naturalHeight) / 220));
+function peShape(ctx, s) {
+  const lw = s.lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const stroke = path => { ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = lw + Math.max(2, lw * 0.5); path(); ctx.stroke(); ctx.strokeStyle = s.color; ctx.lineWidth = lw; path(); ctx.stroke(); };
+  if (s.t === 'ellipse') stroke(() => { ctx.beginPath(); ctx.ellipse((s.x0 + s.x1) / 2, (s.y0 + s.y1) / 2, Math.abs(s.x1 - s.x0) / 2 || 1, Math.abs(s.y1 - s.y0) / 2 || 1, 0, 0, Math.PI * 2); });
+  else if (s.t === 'rect') stroke(() => { ctx.beginPath(); ctx.rect(Math.min(s.x0, s.x1), Math.min(s.y0, s.y1), Math.abs(s.x1 - s.x0), Math.abs(s.y1 - s.y0)); });
+  else if (s.t === 'pen') stroke(() => { ctx.beginPath(); s.pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); });
+  else if (s.t === 'arrow') {
+    const a = Math.atan2(s.y1 - s.y0, s.x1 - s.x0), h = lw * 4.2;
+    stroke(() => { ctx.beginPath(); ctx.moveTo(s.x0, s.y0); ctx.lineTo(s.x1, s.y1);
+      ctx.moveTo(s.x1 - h * Math.cos(a - 0.45), s.y1 - h * Math.sin(a - 0.45)); ctx.lineTo(s.x1, s.y1); ctx.lineTo(s.x1 - h * Math.cos(a + 0.45), s.y1 - h * Math.sin(a + 0.45)); });
+  } else if (s.t === 'text') {
+    const fs = s.lw * 6.5; ctx.font = `700 ${fs}px 'Be Vietnam Pro', system-ui, sans-serif`; ctx.textBaseline = 'middle';
+    const w = ctx.measureText(s.text).width, pad = fs * 0.3;
+    ctx.fillStyle = s.color === '#ffffff' || s.color === '#facc15' ? 'rgba(15,23,42,.78)' : 'rgba(255,255,255,.88)';
+    ctx.fillRect(s.x0 - pad, s.y0 - fs * 0.62, w + pad * 2, fs * 1.24);
+    ctx.fillStyle = s.color; ctx.fillText(s.text, s.x0, s.y0);
+  }
+}
+function peDraw() {
+  const c = $('#peCanvas'), ctx = c.getContext('2d');
+  ctx.drawImage(PE.img, 0, 0, c.width, c.height);
+  PE.shapes.forEach(s => peShape(ctx, s)); if (PE.cur) peShape(ctx, PE.cur);
+  $('#peUndo').disabled = !PE.shapes.length;
+}
+(() => {
+  const c = $('#peCanvas');
+  const pos = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
+  c.addEventListener('pointerdown', async e => {
+    if (!PE.img || PE.cur) return; e.preventDefault();
+    const [x, y] = pos(e);
+    if (PE.tool === 'text') {
+      const txt = await promptBox(t("Nhập chữ ghi lên ảnh"), '', t("VD: Nứt 2mm, Thiếu bu lông…"));
+      if (txt) { PE.shapes.push({ t: 'text', x0: x, y0: y, text: txt, color: PE.color, lw: peLW() }); peDraw(); }
+      return;
+    }
+    c.setPointerCapture(e.pointerId);
+    PE.cur = { t: PE.tool, x0: x, y0: y, x1: x, y1: y, pts: [[x, y]], color: PE.color, lw: peLW(), pid: e.pointerId };
+  });
+  c.addEventListener('pointermove', e => {
+    if (!PE.cur || e.pointerId !== PE.cur.pid) return;
+    const [x, y] = pos(e); PE.cur.x1 = x; PE.cur.y1 = y; if (PE.cur.t === 'pen') PE.cur.pts.push([x, y]);
+    peDraw();
+  });
+  const end = e => {
+    if (!PE.cur || e.pointerId !== PE.cur.pid) return;
+    const s = PE.cur; PE.cur = null;
+    if (Math.hypot(s.x1 - s.x0, s.y1 - s.y0) > peLW() * 2 || (s.t === 'pen' && s.pts.length > 2)) PE.shapes.push(s);
+    peDraw();
+  };
+  c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
+})();
+$('#peTools').onclick = e => { const b = e.target.closest('button'); if (!b) return; PE.tool = b.dataset.t; $('#peTools').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+$('#peColors').onclick = e => { const b = e.target.closest('button'); if (!b) return; PE.color = b.dataset.c; $('#peColors').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+$('#peUndo').onclick = () => { PE.shapes.pop(); peDraw(); };
+$('#peCancel').onclick = async () => { if (PE.shapes.length && !await confirmBox(t("Bỏ các nét vẽ?"), t("Các nét vẽ chưa lưu sẽ bị bỏ."), t("Bỏ"), true)) return; closeLayer('photoedit'); };
+$('#peOrig').onclick = async () => {
+  if (!await confirmBox(t("Khôi phục ảnh gốc?"), t("Xóa toàn bộ nét vẽ đã lưu trên ảnh này và quay về ảnh chụp ban đầu."), t("Khôi phục"))) return;
+  await storeEditedPhoto(PE.ph.orig, true); closeLayer('photoedit');
+};
+$('#peSave').onclick = async () => {
+  if (!PE.shapes.length) { closeLayer('photoedit'); return; }
+  busy(t("Đang lưu ảnh…"));
+  try { await storeEditedPhoto(await canvasToBlob($('#peCanvas'), 'image/jpeg', 0.88), false); closeLayer('photoedit'); toast(t("Đã lưu nét vẽ trên ảnh")); }
+  catch (e) { console.error(e); modal({ title: t("Không lưu được ảnh"), html: esc(e.message || e) }); }
+  finally { unbusy(); }
+};
+async function storeEditedPhoto(blob, restore) {
+  const ph = PE.ph;
+  if (restore) delete ph.orig; else if (!ph.orig) ph.orig = ph.blob; // keep the untouched photo once
+  ph.blob = blob; ph.thumb = (await compressImage(blob, 360, 0.72)).blob;
+  await DB.put('photos', ph);
+  ['f', 't'].forEach(k => { const u = urlCache.get(k + ph.id); if (u) { URL.revokeObjectURL(u); urlCache.delete(k + ph.id); } });
+  const m = S.markers.find(x => x.id === ph.markerId); if (m) await saveMarker(m);
+  if (!$('#photoViewer').hidden) showPV();
+  if (S.cur && S.cur.photoIds.includes(ph.id)) renderSheetPhotos();
+  renderMarks();
+}
 
 /* ======================= FILTER ======================= */
 function filterSummary() {
@@ -1438,17 +1593,28 @@ $('#lpFilter').onclick = openFilter;
 const catOrder = c => CAT_KEYS.indexOf(c);
 const sortMarks = ms => [...ms].sort((a, b) => catOrder(a.cat) - catOrder(b.cat) || a.n - b.n);
 function openList() { $('#listPanel').hidden = false; pushLayer('list', () => { $('#listPanel').hidden = true; }); renderList(); }
+const codeCmp = (a, b) => catOrder(a.cat) - catOrder(b.cat) || a.n - b.n;
+const LIST_SORTS = {
+  code: codeCmp,
+  due: (a, b) => isClosed(a) - isClosed(b) || (a.due ? 0 : 1) - (b.due ? 0 : 1) || String(a.due || '').localeCompare(String(b.due || '')) || codeCmp(a, b),
+  open: (a, b) => isClosed(a) - isClosed(b) || isOverdue(b) - isOverdue(a) || codeCmp(a, b),
+  updated: (a, b) => (b.updated || 0) - (a.updated || 0),
+  created: (a, b) => (b.created || 0) - (a.created || 0),
+};
+function listSortKey() { try { const v = localStorage.getItem('pm.lpSort'); return LIST_SORTS[v] ? v : 'code'; } catch { return 'code'; } }
+$('#lpSort').value = listSortKey();
+$('#lpSort').onchange = () => { try { localStorage.setItem('pm.lpSort', $('#lpSort').value); } catch {} renderList(); };
 function renderList() {
   const q = $('#lpSearch').value.trim().toLowerCase();
-  const all = dwgMarkers();
-  const ms = sortMarks(all.filter(passFilter).filter(m => !q || (markCode(m) + ' ' + m.title + ' ' + m.note + ' ' + (m.owner || '') + ' ' + Object.values(m.extra || {}).join(' ')).toLowerCase().includes(q)));
+  const all = dwgMarkers(), sk = LIST_SORTS[$('#lpSort').value] ? $('#lpSort').value : 'code';
+  const ms = [...(all.filter(passFilter).filter(m => !q || (markCode(m) + ' ' + m.title + ' ' + m.note + ' ' + (m.owner || '') + ' ' + Object.values(m.extra || {}).join(' ')).toLowerCase().includes(q)))].sort(LIST_SORTS[sk]);
   const open = ms.filter(m => !isClosed(m)).length, over = ms.filter(isOverdue).length;
   $('#lpSum').innerHTML = t("<b>{0}</b>{1} điểm · {2} chưa xong{3}{4}", [ms.length, ms.length !== all.length ? '/' + all.length : '', open, over ? t(" · <span style=\"color:#dc2626\">{0} quá hạn</span>", [over]) : '', filterActive() ? t(" · lọc: {0}", [esc(filterSummary())]) : '']);
   const box = $('#lpList'); box.innerHTML = '';
   if (!ms.length) { box.innerHTML = `<div class="empty"><p>${all.length ? t("Không có điểm phù hợp.") : t("Chưa có điểm ghi nhận nào.<br>Bấm “Đánh dấu”, chọn loại rồi chạm/kéo trên bản vẽ.")}</p></div>`; return; }
   let lastCat = null;
   ms.forEach(m => {
-    if (m.cat !== lastCat) { lastCat = m.cat; const n = ms.filter(x => x.cat === m.cat).length; box.insertAdjacentHTML('beforeend', `<div class="lp-page">${esc(t(CATS[m.cat].name))} (${n})</div>`); }
+    if (sk === 'code' && m.cat !== lastCat) { lastCat = m.cat; const n = ms.filter(x => x.cat === m.cat).length; box.insertAdjacentHTML('beforeend', `<div class="lp-page">${esc(t(CATS[m.cat].name))} (${n})</div>`); }
     const st = stOf(m), ph = m.photoIds.length ? S.photos.get(m.photoIds[0]) : null;
     const b = document.createElement('button'); b.className = 'lp-item';
     b.innerHTML = t("<svg class=\"ic\" viewBox=\"-18 -18 36 36\">{0}</svg>\n      <div class=\"body\"><div class=\"t {1}\"><span class=\"code\" style=\"background:{2}\">{3}</span>{4}</div>\n      {5}\n      <div class=\"m\">{6} · {7} · {8} · {9} ảnh{10}{11}</div></div>\n      {12}", [symbolInner(m.cat, st.color, String(m.n), 13), m.title ? '' : 'empty-t', st.color, esc(markCode(m)), esc(m.title || t("(chưa có tiêu đề)")), m.note ? `<div class="d">${esc(m.note)}</div>` : '', t(st.label), t(KINDS[m.kind]), t("tr.{0}", [m.page]), m.photoIds.length, m.owner ? ' · ' + esc(m.owner) : '', m.due ? t(" · <span class=\"due-txt {0}\">Hạn {1}{2}</span>", [isOverdue(m) ? 'over' : '', fmtISO(m.due), isOverdue(m) ? t(" (quá hạn)") : '']) : '', ph ? `<div class="ph" style="background-image:url('${blobURL('t' + ph.id, ph.thumb)}')"></div>` : '']);
@@ -1949,7 +2115,9 @@ async function buildReport0(cfg, AL) {
         if (cfg.snip) cells.push({ snip: true, label: t("Vị trí trên bản vẽ (trang {0})", [m.page]) });
         m.photoIds.forEach((pid, k) => { const ph = S.photos.get(pid); if (ph) cells.push({ ph, label: t("Ảnh {0} · {1}", [k + 1, fmtDate(ph.created)]) }); });
         const headH = 8 + tl.length * 15 + meta.length * 11 + 4 + nl.length * 13.5 + exs.reduce((a, e) => a + 13 + e.lines.length * 12.5, 0) + 8;
-        const rowH = CELLH + CAP + 8;
+        const capLines = c => c.ph?.cap ? wrap(c.ph.cap, R, 8, CELLW, 3) : [];
+        const rowHOf = r => CELLH + CAP + 8 + Math.max(0, ...cells.slice(r, r + COLS).map(c => capLines(c).length)) * 10.5;
+        const rowH = cells.length ? rowHOf(0) : 0;
         if (m.cat !== lastCat) {
           lastCat = m.cat; ensure(30 + headH + (cells.length ? rowH : 0));
           rect(M, y, CW, 20, '#e2e8f0'); sym(M + 11, y + 10, 6.5, m.cat, '');
@@ -1972,7 +2140,8 @@ async function buildReport0(cfg, AL) {
         y += 8;
         if (y - y0 > 40 && pg === pg0) pg.drawRectangle({ x: M + 11, y: H - y + 6, width: 2, height: Math.max(0, y - y0 - 34), color: C(st.color) });
         for (let r = 0; r < cells.length; r += COLS) {
-          if (ensure(rowH)) { text(t("{0} {1} (tiếp)", [markCode(m), m.title || '']).slice(0, 90), M, y + 9, B, 9, MUTED); y += 18; }
+          const rh = rowHOf(r);
+          if (ensure(rh)) { text(t("{0} {1} (tiếp)", [markCode(m), m.title || '']).slice(0, 90), M, y + 9, B, 9, MUTED); y += 18; }
           for (let j = 0; j < COLS && r + j < cells.length; j++) {
             const cell = cells[r + j], x = M + j * (CELLW + GAP);
             rect(x, y, CELLW, CELLH, SOFT);
@@ -1986,8 +2155,9 @@ async function buildReport0(cfg, AL) {
             } catch (e) { console.warn(e); textC(t("(không đọc được ảnh)"), x + CELLW / 2, y + CELLH / 2, R, 8, MUTED); }
             rect(x, y, CELLW, CELLH, null, LINE);
             text(wrap(cell.label, R, 7.5, CELLW, 1)[0], x + 1, y + CELLH + 10, R, 7.5, MUTED);
+            capLines(cell).forEach((l, k) => text(l, x + 1, y + CELLH + 21 + k * 10.5, R, 8, '#1e293b'));
           }
-          y += rowH;
+          y += rh;
         }
         if (!cells.length) { text(t("(Không có ảnh)"), M + 32, y + 6, R, 8.5, MUTED); y += 14; }
         y += 4; hline(M, W - M, y, LINE, 0.8); y += 16;
@@ -2056,15 +2226,91 @@ async function buildReport0(cfg, AL) {
 }
 
 /* ======================= CSV / BACKUP / RESTORE ======================= */
-function exportCSV() {
+/* ---- Real Excel workbook (.xlsx): header styling, colour-coded status, real dates, filter + frozen header ---- */
+const xEsc = v => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const xCol = i => { let s = ''; i++; while (i) { const r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = (i - 1 - r) / 26; } return s; };
+const xSerialMs = ms => ms / 864e5 + 25569 - new Date(ms).getTimezoneOffset() / 1440;
+const xSerialISO = iso => { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d) / 864e5 + 25569; };
+function xlsxSheet(rows, { widths = [], header = true, freeze = true, filter = true } = {}) {
+  // rows: array of arrays of cells; a cell is a value or { v, s } (s = style index, n = number)
+  const out = rows.map((r, ri) => `<row r="${ri + 1}">${r.map((c, ci) => {
+    const cell = (c && typeof c === 'object') ? c : { v: c }, ref = xCol(ci) + (ri + 1), st = cell.s ? ` s="${cell.s}"` : '';
+    if (cell.v === '' || cell.v == null) return `<c r="${ref}"${st}/>`;
+    if (typeof cell.v === 'number') return `<c r="${ref}"${st}><v>${cell.v}</v></c>`;
+    return `<c r="${ref}"${st} t="inlineStr"><is><t xml:space="preserve">${xEsc(cell.v)}</t></is></c>`;
+  }).join('')}</row>`).join('');
+  const nCols = Math.max(...rows.map(r => r.length)), last = xCol(nCols - 1) + rows.length;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>` +
+    (freeze ? `<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>` : '<sheetViews><sheetView workbookViewId="0"/></sheetViews>') +
+    `<sheetFormatPr defaultRowHeight="16"/>` +
+    (widths.length ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '') +
+    `<sheetData>${out}</sheetData>` + (filter && header ? `<autoFilter ref="A1:${last}"/>` : '') +
+    `<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/></worksheet>`;
+}
+async function buildXlsx(sheets, statusColors) {
+  // style indexes: 1 header, 2 text, 3 centered text, 4 date, 5 number, 6 overdue (red bold), 7 title, 8 label, 9.. status colours
+  const fills = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>', '<fill><patternFill patternType="solid"><fgColor rgb="FF1E293B"/></patternFill></fill>',
+    ...statusColors.map(c => `<fill><patternFill patternType="solid"><fgColor rgb="FF${c.slice(1).toUpperCase()}"/></patternFill></fill>`)];
+  const B = 'borderId="1" applyBorder="1"', A = '<alignment vertical="top" wrapText="1"/>';
+  const xfs = ['<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>',
+    `<xf numFmtId="0" fontId="1" fillId="2" ${B} applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>`,
+    `<xf numFmtId="0" fontId="0" fillId="0" ${B} applyAlignment="1">${A}</xf>`,
+    `<xf numFmtId="0" fontId="2" fillId="0" ${B} applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>`,
+    `<xf numFmtId="164" fontId="0" fillId="0" ${B} applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>`,
+    `<xf numFmtId="0" fontId="0" fillId="0" ${B} applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>`,
+    `<xf numFmtId="0" fontId="3" fillId="0" ${B} applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>`,
+    `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" applyFont="1"/>`,
+    `<xf numFmtId="0" fontId="2" fillId="0" borderId="0" applyFont="1" applyAlignment="1"><alignment vertical="top"/></xf>`,
+    ...statusColors.map((c, i) => `<xf numFmtId="0" fontId="1" fillId="${3 + i}" ${B} applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="top" wrapText="1"/></xf>`)];
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="1"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/></numFmts>
+<fonts count="5"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFDC2626"/><name val="Calibri"/></font><font><b/><sz val="15"/><name val="Calibri"/></font></fonts>
+<fills count="${fills.length}">${fills.join('')}</fills>
+<borders count="2"><border/><border><left style="thin"><color rgb="FFCBD5E1"/></left><right style="thin"><color rgb="FFCBD5E1"/></right><top style="thin"><color rgb="FFCBD5E1"/></top><bottom style="thin"><color rgb="FFCBD5E1"/></bottom><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  const enc = s => new Blob([s], { type: 'application/xml' });
+  const entries = [
+    { name: '[Content_Types].xml', blob: enc(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`) },
+    { name: '_rels/.rels', blob: enc(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`) },
+    { name: 'xl/workbook.xml', blob: enc(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((sh, i) => `<sheet name="${xEsc(sh.name.slice(0, 31))}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>${sheets.map((sh, i) => sh.filterRef ? `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${xEsc(sh.name.slice(0, 31))}'!${sh.filterRef}</definedName></definedNames>` : '').join('')}</workbook>`) },
+    { name: 'xl/_rels/workbook.xml.rels', blob: enc(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`) },
+    { name: 'xl/styles.xml', blob: enc(styles) },
+    ...sheets.map((sh, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, blob: enc(sh.xml) })),
+  ];
+  const zip = await buildZip(entries);
+  return new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+async function exportXlsx() {
   if (!S.markers.length) { toast(t("Chưa có điểm ghi nhận nào")); return; }
-  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const extraCols = [['proposal', t("Đề xuất xử lý")], ['reply', t("Phản hồi của các bên")], ['basis', t("Căn cứ")], ['fix', t("Yêu cầu / biện pháp khắc phục")]];
-  const rows = [[t("Mã"), t("Loại"), t("Kiểu"), t("Bản vẽ"), t("Trang"), t("Tiêu đề"), t("Ghi chú"), ...extraCols.map(e => t(e[1])), t("Phụ trách"), t("Hạn xử lý"), t("Trạng thái"), t("Quá hạn"), t("Số ảnh"), t("Ngày tạo"), t("Cập nhật")].map(q).join(',')];
-  sortMarks(S.markers).forEach(m => rows.push([markCode(m), t(CATS[m.cat].name), t(KINDS[m.kind]), dwgName(m.drawingId), m.page, m.title, m.note,
-    ...extraCols.map(([k]) => CATS[m.cat].fields.some(f => f[0] === k) ? m.extra?.[k] || '' : ''),
-    m.owner || '', fmtISO(m.due), t(stOf(m).label), isOverdue(m) ? 'x' : '', m.photoIds.length, fmtDate(m.created), fmtDate(m.updated)].map(q).join(',')));
-  deliverFile(new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv' }), `${safeName(S.project.code || S.project.name)}_danh-sach.csv`, t("Danh sách (mở bằng Excel)"));
+  busy(t("Đang tạo file Excel…"));
+  try {
+    const P = S.project, stKeys = Object.keys(ST), stColors = [...new Set(stKeys.map(k => ST[k].color))];
+    const stStyle = m => 9 + stColors.indexOf(stOf(m).color);
+    const extraCols = [['proposal', "Đề xuất xử lý"], ['reply', "Phản hồi của các bên"], ['basis', "Căn cứ"], ['fix', "Yêu cầu / biện pháp khắc phục"]];
+    const head = [t("Mã"), t("Loại"), t("Kiểu"), t("Bản vẽ"), t("Trang"), t("Tiêu đề"), t("Ghi chú"), ...extraCols.map(e => t(e[1])), t("Phụ trách"), t("Hạn xử lý"), t("Trạng thái"), t("Quá hạn"), t("Số ảnh"), t("Ngày tạo"), t("Cập nhật")];
+    const rows = [head.map(h => ({ v: h, s: 1 }))];
+    sortMarks(S.markers).forEach(m => rows.push([
+      { v: markCode(m), s: 3 }, { v: t(CATS[m.cat].name), s: 2 }, { v: t(KINDS[m.kind]), s: 2 }, { v: dwgName(m.drawingId), s: 2 }, { v: m.page, s: 5 },
+      { v: m.title, s: 2 }, { v: m.note, s: 2 },
+      ...extraCols.map(([k]) => ({ v: CATS[m.cat].fields.some(f => f[0] === k) ? m.extra?.[k] || '' : '', s: 2 })),
+      { v: m.owner || '', s: 2 }, { v: m.due ? xSerialISO(m.due) : '', s: 4 }, { v: t(stOf(m).label), s: stStyle(m) },
+      { v: isOverdue(m) ? t("Quá hạn") : '', s: 6 }, { v: m.photoIds.length, s: 5 },
+      { v: m.created ? xSerialMs(m.created) : '', s: 4 }, { v: m.updated ? xSerialMs(m.updated) : '', s: 4 }]));
+    const widths = [9, 14, 10, 22, 7, 32, 44, 28, 28, 24, 28, 18, 12, 15, 10, 8, 12, 12];
+    const list = { name: t("Danh sách"), xml: xlsxSheet(rows, { widths }), filterRef: `$A$1:$${xCol(head.length - 1)}$${rows.length}` };
+    // summary sheet
+    const info = [[{ v: t("Danh sách điểm ghi nhận hiện trường"), s: 7 }], [],
+      [{ v: t("Dự án"), s: 8 }, P.name || ''], [{ v: t("Mã dự án"), s: 8 }, P.code || ''], [{ v: t("Chủ đầu tư"), s: 8 }, P.owner || ''],
+      [{ v: t("Đơn vị lập"), s: 8 }, P.company || ''], [{ v: t("Ngày xuất"), s: 8 }, fmtDate(Date.now())], [],
+      [{ v: t("Loại"), s: 1 }, { v: t("Tổng số"), s: 1 }, { v: t("Chưa xong"), s: 1 }, { v: t("Quá hạn"), s: 1 }],
+      ...CAT_KEYS.map(c => { const ms = S.markers.filter(m => m.cat === c); return [{ v: t(CATS[c].name), s: 2 }, { v: ms.length, s: 5 }, { v: ms.filter(m => !isClosed(m)).length, s: 5 }, { v: ms.filter(isOverdue).length, s: 5 }]; }),
+      [{ v: t("Cộng"), s: 3 }, { v: S.markers.length, s: 3 }, { v: S.markers.filter(m => !isClosed(m)).length, s: 3 }, { v: S.markers.filter(isOverdue).length, s: 3 }]];
+    const sum = { name: t("Tổng hợp"), xml: xlsxSheet(info, { widths: [26, 40, 12, 12], header: false, freeze: false }) };
+    const blob = await buildXlsx([list, sum], stColors);
+    unbusy();
+    await deliverFile(blob, `${safeName(P.code || P.name)}_${getLang() === 'vi' ? 'danh-sach' : 'list'}.xlsx`, t("File Excel danh sách"));
+  } catch (e) { unbusy(); console.error(e); modal({ title: t("Lỗi"), html: esc(e.message || e) }); }
 }
 /* .pmk v2 = "PMK2" + uint32 manifest length + manifest JSON + binary blobs */
 async function backupProject(pid) {
@@ -2077,11 +2323,17 @@ async function backupProject(pid) {
     const add = b => { if (!b) return null; const r = [off, b.size, b.type]; parts.push(b); off += b.size; return r; };
     const drawings = [];
     for (const d of dws) { const pdf = await DB.get('pdfs', d.id); drawings.push({ ...d, thumb: add(d.thumb), pdf: add(pdf?.blob) }); }
-    const man = { v: 2, app: APP_VERSION, project: p, drawings, markers, photos: photos.map(ph => ({ ...ph, blob: add(ph.blob), thumb: add(ph.thumb) })) };
+    const man = { v: 2, app: APP_VERSION, project: p, drawings, markers, photos: photos.map(ph => ({ ...ph, blob: add(ph.blob), thumb: add(ph.thumb), orig: add(ph.orig) })) };
     const json = new TextEncoder().encode(JSON.stringify(man));
     const head = new Uint8Array(8); head.set([80, 77, 75, 50]); new DataView(head.buffer).setUint32(4, json.length, true);
     unbusy();
-    await deliverFile(new Blob([head, json, ...parts], { type: 'application/octet-stream' }), `${safeName(p.code || p.name)}.pmk`, t("File sao lưu dự án"));
+    const act = await deliverFile(new Blob([head, json, ...parts], { type: 'application/octet-stream' }), `${safeName(p.code || p.name)}.pmk`, t("File sao lưu dự án"),
+      t("Gửi file này lên Google Drive, Zalo hoặc email của chính anh/chị để giữ an toàn. Khôi phục: menu ⋮ ở màn hình chính → Khôi phục từ file sao lưu."));
+    if (act === 'share' || act === 'save') {
+      await setProjectField(pid, { lastBackup: Date.now(), backupSnooze: 0 });
+      toast(t("Đã ghi nhận sao lưu lúc {0}", [fmtDate(Date.now())]));
+      if (S.project?.id === pid) renderProject(); else if ($('#home').classList.contains('active')) renderHome();
+    }
   } catch (e) { unbusy(); console.error(e); modal({ title: t("Sao lưu lỗi"), html: esc(e.message || e) }); }
 }
 async function restoreBackup(file) {
@@ -2108,17 +2360,22 @@ async function restoreBackup(file) {
     }
     for (const [i, ph] of man.photos.entries()) {
       if (i % 10 === 0) $('#busyText').textContent = t("Đang khôi phục ảnh {0}/{1}…", [i + 1, man.photos.length]);
-      await DB.put('photos', { ...ph, id: phMap.get(ph.id), projectId: pid, markerId: mkMap.get(ph.markerId), blob: await readBlob(ph.blob), thumb: await readBlob(ph.thumb) });
+      await DB.put('photos', { ...ph, id: phMap.get(ph.id), projectId: pid, markerId: mkMap.get(ph.markerId), blob: await readBlob(ph.blob), thumb: await readBlob(ph.thumb), orig: ph.orig ? await readBlob(ph.orig) : undefined });
     }
     for (const m of man.markers) await DB.put('markers', { ...m, id: mkMap.get(m.id), projectId: pid, drawingId: dMap.get(m.drawingId), photoIds: (m.photoIds || []).map(x => phMap.get(x)).filter(Boolean) });
     const exists = (await DB.all('projects')).some(x => x.name === man.project.name);
-    await DB.put('projects', { ...man.project, id: pid, name: man.project.name + (exists ? t(" (khôi phục)") : ''), updated: now });
+    await DB.put('projects', { ...man.project, id: pid, name: man.project.name + (exists ? t(" (khôi phục)") : ''), updated: now, lastBackup: now, backupSnooze: 0 });
     requestPersist(); unbusy(); toast(t("Đã khôi phục “{0}”", [man.project.name])); renderHome();
   } catch (e) { unbusy(); console.error(e); modal({ title: t("Khôi phục lỗi"), html: esc(e.message || e) }); }
 }
 $('#inBackup').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) restoreBackup(f); });
 
 async function renumber() {
+  const nRep = (await DB.byIdx('reports', 'projectId', S.project.id)).length;
+  if (nRep) {
+    modal({ title: t("Không đánh số lại được"), html: t("Dự án đã xuất <b>{0} báo cáo</b>. Nếu đánh số lại, mã điểm trong các báo cáo đã gửi các bên sẽ không còn khớp với app.<br><br>Điểm mới vẫn được đánh số tiếp theo bình thường. Nếu thật sự cần đánh số lại, hãy xóa các báo cáo trong mục <b>Báo cáo đã xuất</b> trước.", [nRep]) });
+    return;
+  }
   if (!await confirmBox(t("Đánh số lại?"), t("Mỗi loại sẽ được đánh số liên tục 01, 02… trong toàn dự án, theo thứ tự bản vẽ, trang, từ trên xuống dưới."), t("Đánh số lại"))) return;
   const dOrder = id => S.drawings.findIndex(d => d.id === id);
   for (const c of CAT_KEYS) {
@@ -2150,7 +2407,7 @@ $('#btnViewMenu').onclick = () => menu([
   { label: t("Lập báo cáo PDF"), icon: 'i-export', action: () => openReport([S.drawing.id]) },
   { label: t("Xuất bản vẽ đã đánh dấu"), icon: 'i-doc', action: exportDrawingDialog },
   { label: t("Bộ lọc"), icon: 'i-filter', action: openFilter },
-  { label: t("Xuất danh sách (Excel/CSV)"), icon: 'i-list', action: exportCSV },
+  { label: t("Xuất danh sách Excel (.xlsx)"), icon: 'i-list', action: exportXlsx },
   { label: t("Tải ảnh hiện trường"), icon: 'i-dl', action: () => photosDialog(true) },
   '-',
   { label: t("Đánh số lại các điểm"), icon: 'i-pin', action: renumber },

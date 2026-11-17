@@ -39,6 +39,9 @@
   <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
   <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3z" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
   <symbol id="i-flip" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12.5a3 3 0 015.2-2M15 13.5a3 3 0 01-5.2 2M14.6 8.6v2h-2M9.4 17.4v-2h2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.5 7.5l3 3" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h10a6 6 0 010 12h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 -3)"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7 4v16M7 20l-3-3M7 20l3-3M17 20V4M17 4l-3 3M17 4l3 3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
   <symbol id="k-point" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 13v6" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="20.5" r="1.6" fill="currentColor"/></symbol>
@@ -76,6 +79,7 @@
     <button class="icon-btn" id="pjMenu" aria-label="Menu"><svg><use href="#i-more"/></svg></button>
   </header>
   <main class="home-main">
+    <div class="bk-banner" id="pjBackup" hidden></div>
     <div class="pj-info" id="pjInfo"></div>
     <div class="sec-title">Thống kê ghi nhận</div>
     <div class="cat-stats" id="pjStats"></div>
@@ -175,6 +179,13 @@
   </header>
   <div class="lp-tools">
     <div class="search"><svg><use href="#i-search"/></svg><input id="lpSearch" type="search" placeholder="Tìm theo mã, tiêu đề, ghi chú, phụ trách…"></div>
+    <div class="lp-sortrow"><svg><use href="#i-sort"/></svg><select id="lpSort" aria-label="Sắp xếp">
+      <option value="code">Sắp xếp: theo loại và mã</option>
+      <option value="due">Sắp xếp: hạn xử lý (quá hạn lên đầu)</option>
+      <option value="open">Sắp xếp: chưa xong lên đầu</option>
+      <option value="updated">Sắp xếp: mới cập nhật</option>
+      <option value="created">Sắp xếp: mới tạo</option>
+    </select></div>
     <div class="lp-sum" id="lpSum"></div>
   </div>
   <div class="lp-list" id="lpList"></div>
@@ -263,13 +274,41 @@
   <div class="pv-top">
     <button class="icon-btn" id="pvClose" aria-label="Đóng"><svg><use href="#i-close"/></svg></button>
     <span id="pvCounter">1/1</span>
-    <div class="pv-acts"><button class="icon-btn" id="pvDownload" aria-label="Tải ảnh này"><svg><use href="#i-dl"/></svg></button>
+    <div class="pv-acts"><button class="icon-btn" id="pvEdit" aria-label="Vẽ lên ảnh"><svg><use href="#i-pen"/></svg></button>
+    <button class="icon-btn" id="pvDownload" aria-label="Tải ảnh này"><svg><use href="#i-dl"/></svg></button>
     <button class="icon-btn" id="pvDelete" aria-label="Xóa ảnh"><svg><use href="#i-trash"/></svg></button></div>
   </div>
   <div class="pv-stage" id="pvStage"><img id="pvImg" alt=""></div>
   <button class="pv-nav prev" id="pvPrev" aria-label="Ảnh trước"><svg><use href="#i-left"/></svg></button>
   <button class="pv-nav next" id="pvNext" aria-label="Ảnh sau"><svg><use href="#i-right"/></svg></button>
-  <div class="pv-caption" id="pvCaption"></div>
+  <div class="pv-caption"><div id="pvCaption"></div>
+    <input id="pvCapIn" type="text" placeholder="Thêm chú thích cho ảnh (in trong báo cáo)…" enterkeyhint="done" autocomplete="off"></div>
+</div>
+
+<!-- ============ PHOTO MARKUP ============ -->
+<div id="photoEdit" class="pe" hidden>
+  <div class="pe-top">
+    <button class="pe-txtbtn" id="peCancel">Hủy</button>
+    <div class="pe-mid"><button class="cam-ic" id="peUndo" aria-label="Hoàn tác"><svg><use href="#i-undo"/></svg></button>
+      <button class="pe-txtbtn" id="peOrig" hidden>Ảnh gốc</button></div>
+    <button class="pe-txtbtn primary" id="peSave">Lưu</button>
+  </div>
+  <div class="pe-stage" id="peStage"><canvas id="peCanvas"></canvas></div>
+  <div class="pe-bar">
+    <div class="pe-tools" id="peTools">
+      <button data-t="ellipse" class="on" aria-label="Khoanh tròn"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="6.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Khoanh</span></button>
+      <button data-t="arrow" aria-label="Mũi tên"><svg viewBox="0 0 24 24"><path d="M4 20L19 5M19 5h-8M19 5v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Mũi tên</span></button>
+      <button data-t="rect" aria-label="Khung chữ nhật"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Khung</span></button>
+      <button data-t="pen" aria-label="Bút vẽ tự do"><svg viewBox="0 0 24 24"><path d="M4 17c3-6 5 2 8-3s4-6 8-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>Bút</span></button>
+      <button data-t="text" aria-label="Thêm chữ"><svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span>Chữ</span></button>
+    </div>
+    <div class="pe-colors" id="peColors">
+      <button data-c="#ef4444" class="on" style="background:#ef4444" aria-label="Đỏ"></button>
+      <button data-c="#facc15" style="background:#facc15" aria-label="Vàng"></button>
+      <button data-c="#2563eb" style="background:#2563eb" aria-label="Xanh"></button>
+      <button data-c="#ffffff" style="background:#ffffff" aria-label="Trắng"></button>
+    </div>
+  </div>
 </div>
 
 <!-- ============ MENU / MODAL / TOAST / BUSY ============ -->

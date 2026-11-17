@@ -83,3 +83,12 @@ Gỡ app hoặc xóa dữ liệu trình duyệt sẽ mất dữ liệu, nên sao
 - Khi lập báo cáo PDF có mục **Ngôn ngữ báo cáo** – có thể dùng app tiếng Việt nhưng xuất báo cáo tiếng Anh hoặc tiếng Trung.
 - Nội dung tự nhập (tiêu đề, ghi chú, tên dự án…) giữ nguyên như đã gõ; gõ tiếng Trung vẫn hiển thị đúng trong báo cáo.
 - Phông chữ tiếng Trung (2 file NotoSansSC) chỉ tải khi cần, lần đầu xuất báo cáo tiếng Trung cần có mạng.
+
+## Có gì mới trong bản 2.5
+- **Bảo vệ dữ liệu:** app xin trình duyệt giữ dữ liệu lâu dài. Cuối màn hình chính hiện "✓ Dữ liệu được bảo vệ" hoặc cảnh báo kèm cách khắc phục.
+- **Nhắc sao lưu:** dự án có điểm mới/sửa mà lâu chưa sao lưu sẽ hiện nhắc (ở danh sách dự án và đầu màn hình dự án). Bấm "Sao lưu ngay" → chia sẻ/lưu file .pmk là app ghi nhận đã sao lưu.
+- **Khóa "Đánh số lại"** khi dự án đã xuất báo cáo, để mã điểm không lệch với báo cáo đã gửi.
+- **Chú thích ảnh:** mở ảnh → gõ chú thích ở dưới; chú thích in dưới ảnh trong Phụ lục 2.
+- **Vẽ lên ảnh:** mở ảnh → nút bút ✎ → khoanh, mũi tên, khung, bút tự do, chữ; 4 màu; hoàn tác. Ảnh gốc vẫn được giữ, có nút "Ảnh gốc" để khôi phục.
+- **Sắp xếp danh sách:** theo loại/mã, hạn xử lý (quá hạn lên đầu), chưa xong lên đầu, mới cập nhật, mới tạo.
+- **Xuất Excel thật (.xlsx):** tiêu đề tô màu, trạng thái tô màu, ngày tháng đúng định dạng, có lọc sẵn, cố định dòng tiêu đề, thêm sheet Tổng hợp.
