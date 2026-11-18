@@ -5,7 +5,7 @@ import { t, tl, getLang, setLang, saveLang, LANGS, translateDOM } from './i18n.j
 translateDOM(); document.title = t("Đánh dấu PDF");
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.js', import.meta.url).href;
 
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.5.1';
 const $ = (s, r = document) => r.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -347,7 +347,7 @@ const S = {
   drawing: null, pdfBlob: null, doc: null, pageNum: 1, page: null, base: null, baseRes: 1,
   view: { s: 1, tx: 0, ty: 0 },
   addMode: false, tool: { cat: 'VM', kind: 'point' }, moveId: null, cur: null, showThumbs: false,
-  filter: { cats: [], st: 'all', owner: '', over: false },
+  filter: { cats: [], st: 'all', owner: '', over: false, dmode: 'all', dfrom: '', dto: '' },
 };
 try { S.showThumbs = localStorage.getItem('pm.thumbs') === '1'; const t = JSON.parse(localStorage.getItem('pm.tool') || 'null'); if (t && CATS[t.cat] && KINDS[t.kind]) S.tool = t; } catch {}
 const dwgName = id => S.drawings.find(d => d.id === id)?.name || '';
@@ -492,7 +492,7 @@ async function openProject(pid) {
     S.drawings = (await DB.byIdx('drawings', 'projectId', pid)).sort((a, b) => a.created - b.created);
     S.markers = await DB.byIdx('markers', 'projectId', pid);
     S.photos = new Map((await DB.byIdx('photos', 'projectId', pid)).map(ph => [ph.id, ph]));
-    S.filter = { cats: [], st: 'all', owner: '', over: false };
+    S.filter = emptyFilter();
     showScreen('project');
     if (!hasLayer('project')) pushLayer('project', closeProject);
     renderProject(); renderReports();
@@ -903,8 +903,29 @@ function markGeom(m, toDisp) {
   if (m.kind === 'arrow') { const b = toDisp(m.x2, m.y2); return { tip: a, tail: b, anchor: b }; }
   return { anchor: a, point: a };
 }
+const emptyFilter = () => ({ cats: [], st: 'all', owner: '', over: false, dmode: 'all', dfrom: '', dto: '' });
+const dayStart = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+const isoDay = ms => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+/** [from, to) in ms for the "recorded date" filter, or null when not filtering by date. */
+function dateRange(f) {
+  const today = dayStart();
+  switch (f.dmode) {
+    case 'today': return [today, today + DAY];
+    case 'yest': return [today - DAY, today];
+    case '7': return [today - 6 * DAY, today + DAY];
+    case '30': return [today - 29 * DAY, today + DAY];
+    case 'range': {
+      if (!f.dfrom && !f.dto) return null;
+      let a = f.dfrom ? dayStart(new Date(f.dfrom + 'T00:00')) : -Infinity, b = f.dto ? dayStart(new Date(f.dto + 'T00:00')) + DAY : Infinity;
+      if (a >= b) [a, b] = [b - DAY, a + DAY]; // dates entered the wrong way round
+      return [a, b];
+    }
+    default: return null;
+  }
+}
 const passFilter = m => {
   const f = S.filter;
+  const dr = dateRange(f); if (dr && !((m.created || 0) >= dr[0] && (m.created || 0) < dr[1])) return false;
   if (f.cats.length && !f.cats.includes(m.cat)) return false;
   if (f.st === 'open' && isClosed(m)) return false;
   if (f.st === 'closed' && !isClosed(m)) return false;
@@ -912,7 +933,7 @@ const passFilter = m => {
   if (f.over && !isOverdue(m)) return false;
   return true;
 };
-const filterActive = () => { const f = S.filter; return !!(f.cats.length || f.st !== 'all' || f.owner || f.over); };
+const filterActive = () => { const f = S.filter; return !!(f.cats.length || f.st !== 'all' || f.owner || f.over || dateRange(f)); };
 function svgEl(tag, attrs) { const el = document.createElementNS(NS, tag); for (const k in attrs) el.setAttribute(k, attrs[k]); return el; }
 function renderMarks() {
   if (!S.base) return;
@@ -976,7 +997,7 @@ async function createMark(geom) {
   requestPersist();
   S.markers.push(m);
   setAddMode(false);
-  if (filterActive() && !passFilter(m)) { S.filter = { cats: [], st: 'all', owner: '', over: false }; updateFilterUI(); toast(t("Đã bỏ bộ lọc để hiện điểm mới")); }
+  if (filterActive() && !passFilter(m)) { S.filter = emptyFilter(); updateFilterUI(); toast(t("Đã bỏ bộ lọc để hiện điểm mới")); }
   await saveMarker(m);
   renderMarks(); updateCounts(); openSheet(m);
 }
@@ -1555,6 +1576,8 @@ function filterSummary() {
   if (f.cats.length) parts.push(f.cats.map(c => t(CATS[c].name)).join(', '));
   if (f.st === 'open') parts.push(t("chưa xong")); if (f.st === 'closed') parts.push(t("đã xong"));
   if (f.owner) parts.push(f.owner); if (f.over) parts.push(t("quá hạn"));
+  if (dateRange(f)) parts.push({ today: t("ghi nhận hôm nay"), yest: t("ghi nhận hôm qua"), '7': t("ghi nhận 7 ngày qua"), '30': t("ghi nhận 30 ngày qua") }[f.dmode] ||
+    t("ghi nhận {0} – {1}", [f.dfrom ? fmtISO(f.dfrom) : '…', f.dto ? fmtISO(f.dto) : '…']));
   return parts.join(' · ');
 }
 function updateFilterUI() {
@@ -1564,24 +1587,36 @@ function updateFilterUI() {
   if (on && S.drawing) {
     const all = dwgMarkers(), n = all.filter(passFilter).length;
     bar.innerHTML = t("<svg style=\"width:18px;height:18px\"><use href=\"#i-filter\"/></svg><span>Lọc: {0} — {1}/{2} điểm</span><button id=\"fbEdit\">Sửa</button><button id=\"fbClear\">Bỏ lọc</button>", [esc(filterSummary()), n, all.length]);
-    $('#fbEdit').onclick = openFilter; $('#fbClear').onclick = () => { S.filter = { cats: [], st: 'all', owner: '', over: false }; afterFilter(); };
+    $('#fbEdit').onclick = openFilter; $('#fbClear').onclick = () => { S.filter = emptyFilter(); afterFilter(); };
     bar.hidden = false;
   } else bar.hidden = true;
 }
 function afterFilter() { updateFilterUI(); renderMarks(); if (!$('#listPanel').hidden) renderList(); if (S.cur && !sheet.hidden) updateNav(); }
 async function openFilter() {
-  const f = { ...S.filter, cats: [...S.filter.cats] };
+  const f = { ...emptyFilter(), ...S.filter, cats: [...S.filter.cats] };
+  const DM = [['all', t("Tất cả")], ['today', t("Hôm nay")], ['yest', t("Hôm qua")], ['7', t("7 ngày qua")], ['30', t("30 ngày qua")], ['range', t("Chọn ngày…")]];
+  const dateGrp = `<div class="grp"><span>${esc(t("Ngày ghi nhận"))}</span><div class="chips" id="fDate">${DM.map(([k, l]) => `<button class="chip lt ${f.dmode === k ? 'on' : ''}" data-d="${k}">${esc(l)}</button>`).join('')}</div>
+      <div class="drange" id="fRange" ${f.dmode === 'range' ? '' : 'hidden'}><label><span>${esc(t("Từ ngày"))}</span><input type="date" id="fFrom" value="${f.dfrom}"></label><label><span>${esc(t("Đến ngày"))}</span><input type="date" id="fTo" value="${f.dto}"></label></div></div>`;
   const owners = [...new Set(S.markers.map(m => (m.owner || '').trim()).filter(Boolean))].sort();
   const res = await modal({
     title: t("Bộ lọc"), cls: 'fmodal',
-    html: t("<div class=\"grp\"><span>Loại ghi nhận</span><div class=\"chips\" id=\"fCats\">{0}</div></div>\n      <div class=\"grp\"><span>Trạng thái</span><div class=\"chips\" id=\"fSt\">{1}</div></div>\n      <div class=\"grp\"><span>Phụ trách</span><select id=\"fOwner\"><option value=\"\">Tất cả</option>{2}</select></div>\n      <label class=\"ck\"><input type=\"checkbox\" id=\"fOver\" {3}><span>Chỉ điểm <b>quá hạn</b> xử lý</span></label>", [CAT_KEYS.map(c => `<button class="chip lt ${f.cats.includes(c) ? 'on' : ''}" data-c="${c}">${catIcon(c, '#64748b', '')}${esc(t(CATS[c].name))}</button>`).join(''), [['all', t("Tất cả")], ['open', t("Chưa xong")], ['closed', t("Đã xong / đóng")]].map(([k, l]) => `<button class="chip lt ${f.st === k ? 'on' : ''}" data-s="${k}">${l}</button>`).join(''), owners.map(o => `<option ${f.owner === o ? 'selected' : ''}>${esc(o)}</option>`).join(''), f.over ? 'checked' : '']),
-    buttons: [{ label: t("Bỏ lọc"), value: 'clear' }, { label: t("Áp dụng"), cls: 'primary', value: () => ({ ...f, owner: $('#fOwner').value, over: $('#fOver').checked }) }],
+    html: t("<div class=\"grp\"><span>Loại ghi nhận</span><div class=\"chips\" id=\"fCats\">{0}</div></div>\n      <div class=\"grp\"><span>Trạng thái</span><div class=\"chips\" id=\"fSt\">{1}</div></div>\n      {4}<div class=\"grp\"><span>Phụ trách</span><select id=\"fOwner\"><option value=\"\">Tất cả</option>{2}</select></div>\n      <label class=\"ck\"><input type=\"checkbox\" id=\"fOver\" {3}><span>Chỉ điểm <b>quá hạn</b> xử lý</span></label>", [CAT_KEYS.map(c => `<button class="chip lt ${f.cats.includes(c) ? 'on' : ''}" data-c="${c}">${catIcon(c, '#64748b', '')}${esc(t(CATS[c].name))}</button>`).join(''), [['all', t("Tất cả")], ['open', t("Chưa xong")], ['closed', t("Đã xong / đóng")]].map(([k, l]) => `<button class="chip lt ${f.st === k ? 'on' : ''}" data-s="${k}">${l}</button>`).join(''), owners.map(o => `<option ${f.owner === o ? 'selected' : ''}>${esc(o)}</option>`).join(''), f.over ? 'checked' : '', dateGrp]),
+    buttons: [{ label: t("Bỏ lọc"), value: 'clear' }, { label: t("Áp dụng"), cls: 'primary', value: () => {
+      let a = f.dmode === 'range' ? $('#fFrom').value : '', b = f.dmode === 'range' ? $('#fTo').value : '';
+      if (a && b && a > b) [a, b] = [b, a]; // dates entered the wrong way round
+      return { ...f, owner: $('#fOwner').value, over: $('#fOver').checked, dfrom: a, dto: b };
+    } }],
     onOpen: b => {
       b.querySelectorAll('#fCats button').forEach(x => x.onclick = () => { const c = x.dataset.c; f.cats = f.cats.includes(c) ? f.cats.filter(y => y !== c) : [...f.cats, c]; x.classList.toggle('on'); });
       b.querySelectorAll('#fSt button').forEach(x => x.onclick = () => { f.st = x.dataset.s; b.querySelectorAll('#fSt button').forEach(y => y.classList.toggle('on', y === x)); });
+      b.querySelectorAll('#fDate button').forEach(x => x.onclick = () => {
+        f.dmode = x.dataset.d; b.querySelectorAll('#fDate button').forEach(y => y.classList.toggle('on', y === x));
+        $('#fRange').hidden = f.dmode !== 'range';
+        if (f.dmode === 'range' && !$('#fFrom').value && !$('#fTo').value) { $('#fFrom').value = isoDay(Date.now() - 6 * DAY); $('#fTo').value = isoDay(Date.now()); }
+      });
     },
   });
-  if (res === 'clear') S.filter = { cats: [], st: 'all', owner: '', over: false };
+  if (res === 'clear') S.filter = emptyFilter();
   else if (res) S.filter = res;
   else return;
   afterFilter();

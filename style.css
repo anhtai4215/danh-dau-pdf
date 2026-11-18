@@ -404,3 +404,8 @@ svg{width:22px;height:22px;flex:none}
 .lp-sortrow{display:flex;align-items:center;gap:6px;margin-top:8px;color:#475569}
 .lp-sortrow svg{width:18px;height:18px;flex:none}
 .lp-sortrow select{flex:1;min-width:0;height:36px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;padding:0 8px;font-size:14px;color:#0f172a}
+
+.fmodal .drange{display:flex;gap:10px;margin-top:10px}
+.fmodal .drange[hidden]{display:none}
+.fmodal .drange label{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.fmodal .drange input{height:42px;border-radius:10px;border:1.5px solid var(--line);padding:0 8px;font-size:15px;background:#fff;color:var(--text,#0f172a);width:100%}

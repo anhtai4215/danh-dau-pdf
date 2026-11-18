@@ -491,7 +491,20 @@ const D = { en: {
 "Đỏ": "Red",
 "Vàng": "Yellow",
 "Xanh": "Blue",
-"Trắng": "White"
+"Trắng": "White",
+"Ngày ghi nhận": "Recorded date",
+"Hôm nay": "Today",
+"Hôm qua": "Yesterday",
+"7 ngày qua": "Last 7 days",
+"30 ngày qua": "Last 30 days",
+"Chọn ngày…": "Pick dates…",
+"Từ ngày": "From",
+"Đến ngày": "To",
+"ghi nhận hôm nay": "recorded today",
+"ghi nhận hôm qua": "recorded yesterday",
+"ghi nhận 7 ngày qua": "recorded in last 7 days",
+"ghi nhận 30 ngày qua": "recorded in last 30 days",
+"ghi nhận {0} – {1}": "recorded {0} – {1}"
 }, zh: {
 "Hãy đóng các cửa sổ khác của app để cập nhật dữ liệu": "请关闭本应用的其他窗口以更新数据",
 "Giao dịch bị hủy (có thể do hết dung lượng)": "操作已取消（存储空间可能已满）",
@@ -983,7 +996,20 @@ const D = { en: {
 "Đỏ": "红色",
 "Vàng": "黄色",
 "Xanh": "蓝色",
-"Trắng": "白色"
+"Trắng": "白色",
+"Ngày ghi nhận": "记录日期",
+"Hôm nay": "今天",
+"Hôm qua": "昨天",
+"7 ngày qua": "最近 7 天",
+"30 ngày qua": "最近 30 天",
+"Chọn ngày…": "选择日期…",
+"Từ ngày": "开始日期",
+"Đến ngày": "结束日期",
+"ghi nhận hôm nay": "今天记录",
+"ghi nhận hôm qua": "昨天记录",
+"ghi nhận 7 ngày qua": "最近 7 天记录",
+"ghi nhận 30 ngày qua": "最近 30 天记录",
+"ghi nhận {0} – {1}": "记录于 {0} – {1}"
 } };
 const norm = l => (l === 'en' || l === 'zh') ? l : 'vi';
 function initial() {
